@@ -1,0 +1,1 @@
+CREATE INDEX `admin_audit_created_idx` ON `admin_audit` (`created_at`);

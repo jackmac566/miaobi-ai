@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="妙笔AI">
+  <defs>
+    <linearGradient id="bg" x1="72" y1="52" x2="442" y2="462" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ff9a62"/>
+      <stop offset="1" stop-color="#f24f4c"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+  <path d="M145 353l32-102L330 98c13-13 34-13 47 0l37 37c13 13 13 34 0 47L261 335l-102 32-14-14z" fill="#fff8ef"/>
+  <path d="M177 251l84 84-102 32-14-14 32-102z" fill="#ffd997"/>
+  <path d="M190 315l27 27-58 18 18-58 13 13z" fill="#44312c"/>
+  <path d="M302 126l84 84" fill="none" stroke="#44312c" stroke-width="22" stroke-linecap="round" opacity=".72"/>
+  <circle cx="381" cy="358" r="39" fill="#44312c"/>
+  <path d="M381 337v42M360 358h42" stroke="#ffd997" stroke-width="13" stroke-linecap="round"/>
+</svg>

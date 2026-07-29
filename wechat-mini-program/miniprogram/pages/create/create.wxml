@@ -1,0 +1,14 @@
+<view class="page">
+  <view class="glass hero"><text class="eyebrow">PROFESSIONAL WRITING</text><view class="title">专业创作</view><view class="muted">信息越完整，结果越不像通用模板。</view></view>
+  <view class="glass form">
+    <view class="field"><text>创作场景</text><picker range="{{scenes}}" range-key="name" value="{{sceneIndex}}" bindchange="scene"><view class="picker">{{scenes[sceneIndex].name}} 〉</view></picker></view>
+    <view class="field"><text>主题 / 原文</text><textarea class="textarea" maxlength="4000" data-key="topic" value="{{topic}}" bindinput="field" placeholder="必填：写清楚要创作什么"/></view>
+    <view class="field"><text>真实细节</text><textarea class="textarea small" data-key="details" value="{{details}}" bindinput="field" placeholder="时间、地点、规格、经历、限制…"/></view>
+    <view class="field"><text>目标受众</text><input class="input" data-key="audience" value="{{audience}}" bindinput="field" placeholder="这段内容写给谁看"/></view>
+    <view class="field"><text>写作目的</text><input class="input" data-key="purpose" value="{{purpose}}" bindinput="field" placeholder="希望读者看完做什么"/></view>
+    <view class="field"><text>必须保留 / 禁用表达</text><input class="input" data-key="requirements" value="{{requirements}}" bindinput="field" placeholder="不能改的数字、专有名词和风险边界"/></view>
+    <button class="primary" loading="{{loading}}" bindtap="generate">{{loading ? "正在生成…" : "生成 3 个版本"}}</button>
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+  </view>
+  <view wx:for="{{results}}" wx:key="index" class="glass result"><view class="result-title row between"><text>版本 {{index + 1}}</text><text class="pill" data-content="{{item}}" bindtap="copy">复制</text></view><view class="result-content">{{item}}</view></view>
+</view>

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="bg" x1="120" y1="40" x2="1080" y2="590" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff8f1"/>
+      <stop offset=".56" stop-color="#ffe4d7"/>
+      <stop offset="1" stop-color="#ffc7ac"/>
+    </linearGradient>
+    <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#ff9860"/>
+      <stop offset="1" stop-color="#ef514d"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="1045" cy="70" r="230" fill="#fff" opacity=".36"/>
+  <circle cx="1120" cy="560" r="300" fill="#ff765d" opacity=".12"/>
+  <rect x="94" y="88" width="128" height="128" rx="34" fill="url(#mark)"/>
+  <path d="M128 184l13-42 61-61c5-5 14-5 19 0l15 15c5 5 5 14 0 19l-61 61-42 13-5-5z" fill="#fff8ef" transform="translate(-1 19) scale(.78)"/>
+  <text x="258" y="168" font-family="DejaVu Sans, sans-serif" font-size="66" font-weight="700" fill="#342a26">MIAOBI AI</text>
+  <text x="98" y="326" font-family="DejaVu Sans, sans-serif" font-size="74" font-weight="700" fill="#342a26">Write from facts.</text>
+  <text x="98" y="410" font-family="DejaVu Sans, sans-serif" font-size="74" font-weight="700" fill="#ef574e">Sound like you.</text>
+  <text x="102" y="490" font-family="DejaVu Sans, sans-serif" font-size="28" fill="#786861">43 writing scenes · fact guard · multiple AI providers</text>
+  <rect x="98" y="536" width="248" height="9" rx="5" fill="#ef5d50"/>
+</svg>

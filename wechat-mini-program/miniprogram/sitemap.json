@@ -1,0 +1,4 @@
+{
+  "desc": "妙笔AI 可索引页面",
+  "rules": [{ "action": "allow", "page": "*" }]
+}

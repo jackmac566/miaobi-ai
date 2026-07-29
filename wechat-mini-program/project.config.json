@@ -1,0 +1,14 @@
+{
+  "appid": "touristappid",
+  "projectname": "miaobi-ai-v1.4.0",
+  "description": "妙笔AI 微信小程序",
+  "compileType": "miniprogram",
+  "miniprogramRoot": "miniprogram/",
+  "setting": {
+    "useCompilerPlugins": false,
+    "es6": true,
+    "postcss": true,
+    "minified": true,
+    "urlCheck": true
+  }
+}

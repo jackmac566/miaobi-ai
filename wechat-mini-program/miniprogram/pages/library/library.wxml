@@ -1,0 +1,6 @@
+<view class="page">
+  <view class="glass hero"><text class="eyebrow">43 SCENES</text><view class="title">创作素材库</view><view class="muted">选择一个场景，再补充你的真实素材。</view><input class="search" value="{{keyword}}" bindinput="search" placeholder="搜索场景"/></view>
+  <view class="card-grid scenes">
+    <view wx:for="{{scenes}}" wx:key="id" class="glass scene-card" data-id="{{item.id}}" bindtap="choose"><view class="icon">{{item.icon}}</view><view class="name">{{item.name}}</view><view class="desc">{{item.desc}}</view></view>
+  </view>
+</view>

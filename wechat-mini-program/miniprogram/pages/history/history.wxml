@@ -1,0 +1,5 @@
+<view class="page">
+  <view class="row between"><view><view class="title">历史与草稿</view><view class="muted">只保存在当前微信设备</view></view><text class="pill" bindtap="clear">清空</text></view>
+  <view wx:if="{{!list.length}}" class="empty">生成后的所有版本都会出现在这里</view>
+  <view wx:for="{{list}}" wx:key="id" class="glass history-item" data-content="{{item.content}}" bindtap="copy"><view class="meta">{{item.scene}}</view><view class="name">{{item.title}}</view><view class="preview">{{item.content}}</view></view>
+</view>

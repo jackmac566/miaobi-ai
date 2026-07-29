@@ -1,0 +1,1 @@
+.account-card,.auth-card{padding:28rpx;margin-top:22rpx}.account-name{font-size:34rpx;font-weight:800}.auth-card .primary,.account-card .secondary{margin-top:28rpx}

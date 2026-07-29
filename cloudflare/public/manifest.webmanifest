@@ -1,0 +1,24 @@
+{
+  "name": "妙笔AI｜事实型中文文案助手",
+  "short_name": "妙笔AI",
+  "description": "覆盖 43 个场景、强调真实素材与事实边界的中文文案工具。",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffaf5",
+  "theme_color": "#ff6257",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

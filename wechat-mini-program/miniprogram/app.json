@@ -1,0 +1,32 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/create/create",
+    "pages/tools/tools",
+    "pages/library/library",
+    "pages/history/history",
+    "pages/account/account"
+  ],
+  "window": {
+    "navigationBarTitleText": "妙笔AI",
+    "navigationBarBackgroundColor": "#fffaf6",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#fffaf6",
+    "backgroundTextStyle": "light"
+  },
+  "tabBar": {
+    "color": "#9b8d86",
+    "selectedColor": "#ef5e4d",
+    "backgroundColor": "#fffaf7",
+    "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/home/home", "text": "首页" },
+      { "pagePath": "pages/create/create", "text": "创作" },
+      { "pagePath": "pages/tools/tools", "text": "工具箱" },
+      { "pagePath": "pages/library/library", "text": "素材库" },
+      { "pagePath": "pages/history/history", "text": "历史" }
+    ]
+  },
+  "sitemapLocation": "sitemap.json",
+  "style": "v2"
+}

@@ -1,0 +1,16 @@
+<view class="page">
+  <view class="glass hero"><text class="eyebrow">ACCOUNT</text><view class="title">我的账户</view><view class="muted">站长按这里使用的邮箱开通会员，权益才能同步。</view></view>
+  <view wx:if="{{account && account.signedIn}}" class="glass account-card">
+    <view class="row between"><view><view class="account-name">{{account.name}}</view><view class="muted">{{account.isAdmin ? "站长" : account.isMember ? "会员" : "免费用户"}}</view></view><text class="pill">{{account.remaining}} 次</text></view>
+    <view class="notice">当前额度为滚动 24 小时窗口；会员 100 次，免费用户 10 次。</view>
+    <button class="secondary" bindtap="logout">退出登录</button>
+  </view>
+  <view wx:else class="glass auth-card">
+    <view class="auth-tabs"><button data-mode="login" class="{{mode === 'login' ? 'active' : ''}}" bindtap="mode">登录</button><button data-mode="register" class="{{mode === 'register' ? 'active' : ''}}" bindtap="mode">注册</button></view>
+    <view class="field"><text>邮箱</text><input class="input" type="text" data-key="email" value="{{email}}" bindinput="field" placeholder="name@example.com"/></view>
+    <view class="field"><text>密码</text><input class="input" password data-key="password" value="{{password}}" bindinput="field" placeholder="至少 10 位"/></view>
+    <button class="primary" loading="{{busy}}" bindtap="submit">{{mode === "login" ? "安全登录" : "注册并登录"}}</button>
+  </view>
+  <view wx:if="{{error}}" class="error">{{error}}</view><view wx:if="{{message}}" class="success">{{message}}</view>
+  <view class="notice">邮箱注册暂未发送验证邮件；请保管好密码。付款前先登录，并把同一邮箱提供给站长核对。</view>
+</view>

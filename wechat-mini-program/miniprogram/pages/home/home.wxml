@@ -1,0 +1,23 @@
+<view class="page">
+  <view class="glass hero">
+    <view class="row between"><text class="eyebrow">{{version}} · DEEPSEEK</text><text class="account-button" bindtap="account">{{account.signedIn ? (account.isMember ? "会员账户" : "我的账户") : "登录 / 注册"}}</text></view>
+    <view class="title">把真实素材，写成好文案。</view>
+    <view class="muted">访客每个滚动 24 小时 10 次；失败请求不扣次数。</view>
+    <view class="count">当前剩余 <b>{{account.remaining}}</b> 次</view>
+    <view class="field"><textarea class="textarea" maxlength="4000" value="{{topic}}" bindinput="input" placeholder="输入主题和真实信息，例如时间、地点、对象、卖点…"/></view>
+    <button class="primary" loading="{{loading}}" bindtap="generate">{{loading ? "DeepSeek 正在创作…" : "立即生成"}}</button>
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+  </view>
+  <view wx:if="{{results.length}}" class="section-title">生成结果</view>
+  <view wx:for="{{results}}" wx:key="index" class="glass result">
+    <view class="result-title row between"><text>版本 {{index + 1}}</text><text class="pill" data-content="{{item}}" bindtap="copy">复制</text></view>
+    <view class="result-content">{{item}}</view>
+  </view>
+  <view class="section-title">热门场景</view>
+  <view class="card-grid">
+    <view wx:for="{{scenes}}" wx:key="id" class="glass scene-card" data-id="{{item.id}}" bindtap="choose">
+      <view class="icon">{{item.icon}}</view><view class="name">{{item.name}}</view><view class="desc">{{item.desc}}</view>
+    </view>
+  </view>
+  <view class="notice">小程序内不保存 DeepSeek API Key。所有生成均通过你自己的国内 HTTPS 后端完成。</view>
+</view>

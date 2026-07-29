@@ -1,0 +1,65 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.npm-cache
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# typescript
+next-env.d.ts
+/dist/
+/.wrangler/
+/.sites-runtime/
+/outputs/
+/work/
+/.cloudbase-function-stage/
+/.home/
+/domestic-deploy-output/
+/cloudflare-deploy-output/
+/cloudflare/wrangler.jsonc
+/cloudflare/dist/
+/.vinext/
+
+# WorkBuddy publish instructions (internal, not for public release)
+WORKBUDDY_PUBLISH.md
+**/WORKBUDDY_TASK.md
+
+# operator-owned payment assets; never publish personal collection QR codes
+/public/payment/*.png
+/public/payment/*.jpg
+/public/payment/*.jpeg
+!/public/payment/README.md
+/cloudflare/public/payment/*.png
+/cloudflare/public/payment/*.jpg
+/cloudflare/public/payment/*.jpeg
+!/cloudflare/public/payment/README.md
