@@ -5,10 +5,10 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
-const RELEASE_VERSION = "V1.4.5";
+const RELEASE_VERSION = "V1.5.0";
 const WRANGLER_VERSION = "4.92.0";
-const DEFAULT_PROJECT = process.env.CLOUDFLARE_PAGES_PROJECT?.trim() || "miaobi-ai";
-const DATABASE_NAME = process.env.CLOUDFLARE_D1_DATABASE?.trim() || "miaobi-ai";
+const DEFAULT_PROJECT = "miaobi-ai";
+const DATABASE_NAME = process.env.CLOUDFLARE_D1_DATABASE?.trim() || "miaobi-ai-db";
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const cloudflareRoot = path.join(projectRoot, "cloudflare");
 const dist = path.join(cloudflareRoot, "dist");
@@ -19,10 +19,14 @@ const configFile = path.join(cloudflareRoot, "wrangler.jsonc");
 const schemaFile = path.join(cloudflareRoot, "schema.sql");
 const skipBuild = process.argv.includes("--skip-build");
 const prepareOnly = process.argv.includes("--prepare-only");
+const rotateCredentials = process.argv.includes("--rotate-credentials");
+const PERSISTENT_SECRET_NAMES = ["DEEPSEEK_API_KEY", "ADMIN_PASSWORD", "SESSION_SECRET"];
 
 function assertRuntime() {
-  const major = Number(process.versions.node.split(".")[0]);
-  if (!Number.isInteger(major) || major < 20) throw new Error("需要 Node.js 20 或更高 LTS 版本。");
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  if (!Number.isInteger(major) || major < 22 || (major === 22 && minor < 13)) {
+    throw new Error("需要 Node.js 22.13 或更高版本。");
+  }
 }
 
 function run(args, { capture = false, input, cwd = projectRoot } = {}) {
@@ -68,6 +72,23 @@ export function projectNameFromListItem(item) {
     || item["Project Name"]
     || "",
   ).trim();
+}
+
+export function secretNamesFromList(value, rawOutput = "") {
+  const entries = Array.isArray(value)
+    ? value
+    : Array.isArray(value?.secrets)
+      ? value.secrets
+      : Array.isArray(value?.result)
+        ? value.result
+        : [];
+  const names = new Set(entries.map(item => String(
+    typeof item === "string" ? item : item?.name || item?.key || item?.["Secret Name"] || "",
+  ).trim()).filter(Boolean));
+  for (const name of [...PERSISTENT_SECRET_NAMES, "DEPLOY_CHECK_SECRET"]) {
+    if (new RegExp(`(?:^|\\W)${name}(?:\\W|$)`).test(rawOutput)) names.add(name);
+  }
+  return names;
 }
 
 async function artifactDigest(directory) {
@@ -149,9 +170,9 @@ async function askAdminEmail() {
   const configured = process.env.MIAOBI_ADMIN_EMAIL?.trim();
   if (configured) return configured.toLowerCase();
   const terminal = createInterface({ input: process.stdin, output: process.stdout });
-  const answer = (await terminal.question("请输入主管理员登录邮箱（直接回车使用 owner@example.com）：")).trim();
+  const answer = (await terminal.question("请输入主管理员登录邮箱：")).trim();
   terminal.close();
-  const email = (answer || "owner@example.com").toLowerCase();
+  const email = answer.toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("主管理员邮箱格式不正确");
   return email;
 }
@@ -161,7 +182,7 @@ async function writeWranglerConfig(projectName, database, adminEmail) {
     $schema: "../node_modules/wrangler/config-schema.json",
     name: projectName,
     pages_build_output_dir: "./dist",
-    compatibility_date: "2026-07-28",
+    compatibility_date: "2026-07-29",
     d1_databases: [{
       binding: "DB",
       database_name: database.databaseName,
@@ -188,6 +209,18 @@ function putGeneratedSecret(projectName, key) {
     input: `${value}\n`,
   });
   return value;
+}
+
+function listExistingSecrets(projectName) {
+  const listed = run(["pages", "secret", "list", "--project-name", projectName], {
+    capture: true,
+    cwd: cloudflareRoot,
+  });
+  if (!listed.ok) {
+    printResult(listed);
+    throw new Error("无法读取现有服务端密钥列表；为避免误覆盖，部署已停止");
+  }
+  return secretNamesFromList(parseJsonOutput(listed), `${listed.stdout}\n${listed.stderr}`);
 }
 
 async function waitForPage(url, deployCheckSecret) {
@@ -219,7 +252,9 @@ async function waitForPage(url, deployCheckSecret) {
         return response.ok ? response.text() : "";
       }));
       const pageReady = pageResponse.ok && html.includes("妙笔AI") && html.includes("DeepSeek") && html.includes("payment-config.js");
-      const paymentReady = paymentResponse.ok && paymentConfig.includes("__MIAOBI_PAYMENT__");
+      const paymentDisabled = /enabled\s*:\s*false/.test(paymentConfig);
+      const paymentMethodsReady = paymentConfig.includes("wechat") && paymentConfig.includes("alipay");
+      const paymentReady = paymentResponse.ok && (paymentDisabled || paymentMethodsReady);
       const bundleReady = bundleTexts.some(bundle => bundle.includes(RELEASE_VERSION) && bundle.includes("每 24 小时 10 次"));
       const backendReady = healthResponse.ok && health?.release === RELEASE_VERSION && health?.database === true;
       const deepSeekReady = deepSeekResponse.ok && deepSeek?.ok === true && deepSeek?.contentReceived === true;
@@ -227,7 +262,7 @@ async function waitForPage(url, deployCheckSecret) {
         return {
           verified: true,
           status: pageResponse.status,
-          checks: [`${RELEASE_VERSION} 页面脚本`, "DeepSeek 真实非空响应", "D1 数据库", "手机登录入口", "付款配置已读取"],
+          checks: [`${RELEASE_VERSION} 页面脚本`, "DeepSeek 真实非空响应", "D1 数据库", "手机登录入口", paymentDisabled ? "人工收款已安全关闭" : "微信/支付宝收款配置"],
           deepSeekConfigured: Boolean(health.deepSeekConfigured),
           deepSeekOperational: true,
           resolvedModel: deepSeek.model || health.model,
@@ -277,9 +312,22 @@ async function main() {
   run(["d1", "execute", database.databaseName, "--remote", "--file", schemaFile, "--yes"], { cwd: cloudflareRoot });
 
   console.log("[5/7] 配置服务端密钥…");
-  putInteractiveSecret(projectName, "DEEPSEEK_API_KEY", "请粘贴一枚全新的 DeepSeek API Key，然后回车：");
-  putInteractiveSecret(projectName, "ADMIN_PASSWORD", "请设置国内版主管理员密码（至少 10 位），然后回车：");
-  putGeneratedSecret(projectName, "SESSION_SECRET");
+  const existingSecrets = listExistingSecrets(projectName);
+  if (rotateCredentials || !existingSecrets.has("DEEPSEEK_API_KEY")) {
+    putInteractiveSecret(projectName, "DEEPSEEK_API_KEY", "请粘贴一枚全新的 DeepSeek API Key，然后回车：");
+  } else {
+    console.log("保留现有 DEEPSEEK_API_KEY，不要求重复粘贴。");
+  }
+  if (rotateCredentials || !existingSecrets.has("ADMIN_PASSWORD")) {
+    putInteractiveSecret(projectName, "ADMIN_PASSWORD", "请设置国内版主管理员密码（至少 10 位），然后回车：");
+  } else {
+    console.log("保留现有 ADMIN_PASSWORD，站长登录密码不变。");
+  }
+  if (rotateCredentials || !existingSecrets.has("SESSION_SECRET")) {
+    putGeneratedSecret(projectName, "SESSION_SECRET");
+  } else {
+    console.log("保留现有 SESSION_SECRET，更新后用户不会被无故退出。");
+  }
   const deployCheckSecret = putGeneratedSecret(projectName, "DEPLOY_CHECK_SECRET");
 
   console.log(`[6/7] 上传到固定 Pages 项目 ${projectName}…`);

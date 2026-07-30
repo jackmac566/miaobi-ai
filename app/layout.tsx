@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -50,6 +50,28 @@ export const metadata: Metadata = {
   manifest: "/manifest.webmanifest",
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#fffaf5",
+  colorScheme: "light",
+};
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  name: "妙笔AI",
+  applicationCategory: "BusinessApplication",
+  operatingSystem: "Web",
+  inLanguage: "zh-CN",
+  url: "https://ai-copywriting-assistant.maxc565.chatgpt.site",
+  description: "覆盖 43 个场景、强调真实素材与事实边界的中文文案创作工具。",
+  offers: [
+    { "@type": "Offer", name: "免费版", price: "0", priceCurrency: "CNY" },
+    { "@type": "Offer", name: "月度会员", price: "19.9", priceCurrency: "CNY" },
+  ],
+};
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -60,6 +82,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <script type="application/ld+json">{JSON.stringify(structuredData)}</script>
         {children}
       </body>
     </html>

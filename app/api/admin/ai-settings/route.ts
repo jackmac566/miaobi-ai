@@ -40,6 +40,7 @@ async function testProvider(provider: ReturnType<typeof getAIProvider>, apiKey: 
       { role: "user", content: "只回复：连接成功" },
     ],
     maxTokens: 768,
+    timeoutMs: 20_000,
   });
   if (!response.ok) {
     const userMessage = await providerErrorMessage(provider.id, response);

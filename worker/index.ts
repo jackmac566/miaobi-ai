@@ -46,10 +46,12 @@ const worker = {
     secured.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
     secured.headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     secured.headers.set("X-Frame-Options", "DENY");
+    secured.headers.set("Cross-Origin-Opener-Policy", "same-origin");
+    secured.headers.set("Cross-Origin-Resource-Policy", "same-origin");
     secured.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
     secured.headers.set(
       "Content-Security-Policy",
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests",
     );
     if (url.pathname === "/sw.js") {
       secured.headers.set("Cache-Control", "no-cache");

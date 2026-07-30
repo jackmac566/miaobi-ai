@@ -43,6 +43,13 @@
       "when": 1785061217736,
       "tag": "0005_equal_corsair",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1785337358350,
+      "tag": "0006_known_night_nurse",
+      "breakpoints": true
     }
   ]
 }

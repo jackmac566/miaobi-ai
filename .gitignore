@@ -2,7 +2,6 @@
 
 # dependencies
 /node_modules
-/.npm-cache
 /.pnp
 .pnp.*
 .yarn/*
@@ -28,7 +27,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files
 .env*
 !.env.example
 
@@ -37,9 +36,12 @@ yarn-error.log*
 
 # typescript
 next-env.d.ts
+*.tsbuildinfo
 /dist/
+/cloudflare/dist/
 /.wrangler/
 /.sites-runtime/
+/.npm-cache/
 /outputs/
 /work/
 /.cloudbase-function-stage/
@@ -47,19 +49,8 @@ next-env.d.ts
 /domestic-deploy-output/
 /cloudflare-deploy-output/
 /cloudflare/wrangler.jsonc
-/cloudflare/dist/
-/.vinext/
-
-# WorkBuddy publish instructions (internal, not for public release)
-WORKBUDDY_PUBLISH.md
-**/WORKBUDDY_TASK.md
-
-# operator-owned payment assets; never publish personal collection QR codes
+/.openai/hosting.json
 /public/payment/*.png
 /public/payment/*.jpg
-/public/payment/*.jpeg
-!/public/payment/README.md
 /cloudflare/public/payment/*.png
 /cloudflare/public/payment/*.jpg
-/cloudflare/public/payment/*.jpeg
-!/cloudflare/public/payment/README.md

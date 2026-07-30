@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { changelog, latestChangelog } from "../lib/changelog";
 import { MEMBERSHIP_TIERS } from "../lib/membership";
 import {
@@ -38,6 +38,16 @@ type AdvancedOptions = { emoji: boolean; autoFormat: boolean; riskGuard: boolean
 type ControlReceipt = { style?: string; preference?: string | null; intensity?: ToolIntensity | null; length?: string };
 type PaymentMethod = { id: string; name: string; qr: string; crop?: "wechat" | "alipay" };
 type ManualPayment = { enabled?: boolean; qr?: string; methods?: PaymentMethod[]; contact?: string; note?: string };
+type GenerationResponse = {
+  error?: string;
+  code?: string;
+  signIn?: string;
+  results: string[];
+  engineLabel?: string;
+  appliedControls?: ControlReceipt;
+  remaining?: number;
+  resetsAt?: number;
+};
 
 declare global {
   interface Window {
@@ -219,7 +229,7 @@ function friendlyGenerationError(error: unknown, fallback: string) {
 }
 
 export default function Home() {
-  const [page, setPage] = useState("home");
+  const [page, setPage] = useState(() => typeof window !== "undefined" && window.__MIAOBI_STATIC_MODE__ === true && location.pathname === "/updates" ? "updates" : "home");
   const [scene, setScene] = useState<Scene>(scenes[0]);
   const [topic, setTopic] = useState("");
   const [details, setDetails] = useState("");
@@ -230,7 +240,7 @@ export default function Home() {
   const [length, setLength] = useState("标准 · 150—300字");
   const [versionCount, setVersionCount] = useState(3);
   const [advancedOptions, setAdvancedOptions] = useState<AdvancedOptions>({ emoji: false, autoFormat: false, riskGuard: true });
-  const [count, setCount] = useState(STATIC_DAILY_LIMIT);
+  const [count, setCount] = useState<number>(STATIC_DAILY_LIMIT);
   const [generating, setGenerating] = useState(false);
   const [results, setResults] = useState<string[]>([]);
   const [engineLabel, setEngineLabel] = useState("智能引擎");
@@ -238,7 +248,9 @@ export default function Home() {
   const [generationError, setGenerationError] = useState("");
   const [history, setHistory] = useState<Draft[]>(initialHistory);
   const [toast, setToast] = useState("");
-  const [modal, setModal] = useState<"member" | "share" | "profile" | "legal" | null>(null);
+  const [modal, setModal] = useState<"member" | "share" | "profile" | "legal" | null>(() =>
+    typeof window !== "undefined" && window.__MIAOBI_STATIC_MODE__ === true && location.pathname === "/legal" ? "legal" : null
+  );
   const [tool, setTool] = useState<string | null>(null);
   const [toolText, setToolText] = useState("");
   const [toolResult, setToolResult] = useState("");
@@ -249,6 +261,7 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("全部");
   const [account, setAccount] = useState<Account>({ signedIn: false, remaining: STATIC_DAILY_LIMIT, isAdmin: false });
+  const [accountSyncFailed, setAccountSyncFailed] = useState(false);
   const premiumAccess = account.isMember === true || account.isAdmin === true;
 
   useEffect(() => {
@@ -284,13 +297,14 @@ export default function Home() {
   }, [history]);
 
   useEffect(() => {
-    fetch("/api/account", { cache: "no-store", signal: AbortSignal.timeout(12_000) }).then(r => r.json()).then((next: Account) => {
+    fetch("/api/account", { cache: "no-store", signal: AbortSignal.timeout(12_000) }).then(async r => await r.json() as Account).then(next => {
       setAccount(next);
+      setAccountSyncFailed(false);
       setVersionCount(next.isMember || next.isAdmin ? 6 : 3);
       if (typeof next.remaining === "number") setCount(next.remaining);
     }).catch(() => {
-      setCount(0);
-      setAccount(current => ({ ...current, remaining: 0, aiConfigured: false }));
+      setAccountSyncFailed(true);
+      setAccount(current => ({ ...current, remaining: null }));
     });
   }, []);
 
@@ -368,7 +382,7 @@ export default function Home() {
         }),
         signal: AbortSignal.timeout(40_000),
       });
-      const data = await response.json();
+      const data = await response.json() as GenerationResponse;
       if (response.status === 401 && data.signIn) { window.location.href = data.signIn; return; }
       if (!response.ok) {
         const message = data.error || "生成失败，请稍后重试";
@@ -381,8 +395,14 @@ export default function Home() {
       setEngineLabel(data.engineLabel || "DeepSeek");
       setGenerationReceipt(data.appliedControls || { style, length });
       setGenerationError("");
-      setResults(next); if (typeof data.remaining === "number") setCount(data.remaining);
-      if (typeof data.resetsAt === "number") setAccount(current => ({ ...current, remaining: data.remaining, resetsAt: data.resetsAt }));
+      setResults(next);
+      const remaining = typeof data.remaining === "number" ? data.remaining : null;
+      if (remaining !== null) setCount(remaining);
+      if (typeof data.resetsAt === "number") {
+        const resetsAt = data.resetsAt;
+        setAccountSyncFailed(false);
+        setAccount(current => ({ ...current, remaining: remaining ?? current.remaining, resetsAt }));
+      }
       saveHistory(next, targetScene);
     } catch (error) {
       const message = error instanceof DOMException && error.name === "TimeoutError"
@@ -453,7 +473,7 @@ export default function Home() {
         }),
         signal: AbortSignal.timeout(40_000),
       });
-      const data = await response.json();
+      const data = await response.json() as GenerationResponse;
       if (response.status === 401 && data.signIn) { window.location.href = data.signIn; return; }
       if (!response.ok) {
         const message = data.error || "优化失败";
@@ -468,7 +488,12 @@ export default function Home() {
         preference: action === "natural" ? "自然表达" : "核心摘要",
         intensity: action === "natural" ? "深度" : "标准",
       });
-      if (typeof data.remaining === "number") setCount(data.remaining);
+      if (typeof data.remaining === "number") {
+        const remaining = data.remaining;
+        setCount(remaining);
+        setAccountSyncFailed(false);
+        setAccount(current => ({ ...current, remaining, resetsAt: data.resetsAt ?? current.resetsAt }));
+      }
       if (!refined) {
         setGenerationError("本次没有返回可用内容");
         showToast("本次没有返回可用内容");
@@ -553,7 +578,7 @@ export default function Home() {
         }),
         signal: AbortSignal.timeout(40_000),
       });
-      const data = await response.json();
+      const data = await response.json() as GenerationResponse;
       if (response.status === 401 && data.signIn) { window.location.href = data.signIn; return; }
       if (!response.ok) {
         const message = data.error || "处理失败";
@@ -565,7 +590,12 @@ export default function Home() {
       setToolResult(data.results[0]);
       setEngineLabel(data.engineLabel || "DeepSeek");
       setToolReceipt(data.appliedControls || { preference: toolPreference, intensity: toolIntensity });
-      if (typeof data.remaining === "number") setCount(data.remaining);
+      if (typeof data.remaining === "number") {
+        const remaining = data.remaining;
+        setCount(remaining);
+        setAccountSyncFailed(false);
+        setAccount(current => ({ ...current, remaining, resetsAt: data.resetsAt ?? current.resetsAt }));
+      }
       setHistory(current => [{
         id: Date.now(),
         title: tool || "文本处理",
@@ -584,9 +614,10 @@ export default function Home() {
   const signInHref = account.signInPath || (isStaticMode() ? "/login" : "/signin-with-chatgpt?return_to=%2F");
 
   return <div className="app-shell">
+    <a className="skip-link" href="#main-content">跳到主要内容</a>
     <aside className="sidebar">
-      <button className="brand" onClick={() => setPage("home")}><span className="brand-mark">✎</span><b>妙笔AI</b></button>
-      <nav>{nav.map(([id, icon, label]) => <button key={id} className={page === id ? "active" : ""} onClick={() => setPage(id)}><span>{icon}</span>{label}</button>)}</nav>
+      <button className="brand" aria-label="返回妙笔AI首页" onClick={() => setPage("home")}><span className="brand-mark">✎</span><b>妙笔AI</b></button>
+      <nav aria-label="主导航">{nav.map(([id, icon, label]) => <button key={id} aria-current={page === id ? "page" : undefined} className={page === id ? "active" : ""} onClick={() => setPage(id)}><span>{icon}</span>{label}</button>)}</nav>
       <button className={`sidebar-update ${page === "updates" ? "active" : ""}`} onClick={() => setPage("updates")}><span>↻</span>更新日志<i>{latestChangelog.version}</i></button>
       <div className="side-bottom">
         <button onClick={() => setModal("member")} className="vip-card"><span>♛</span><div><b>{premiumAccess ? "会员权益已生效" : "升级会员"}</b><small>{premiumAccess ? "6 个版本 · 24h 100 次" : "长素材 · 6 个版本"}</small></div></button>
@@ -594,14 +625,14 @@ export default function Home() {
       </div>
     </aside>
 
-    <main className="main">
+    <main className="main" id="main-content">
       <header className="topbar">
         <div className="mobile-brand"><span className="brand-mark">✎</span><b>妙笔AI</b></div>
         <div className="top-actions">
-          <button className="stat-pill" onClick={() => setModal("member")} aria-label={`${premiumAccess ? "会员" : "免费"}账户，滚动24小时剩余${count}次`}>
+          <button className="stat-pill" onClick={() => setModal("member")} aria-label={accountSyncFailed ? "额度暂未同步，点击查看账户说明" : `${premiumAccess ? "会员" : "免费"}账户，滚动24小时剩余${count}次`}>
             <span className="status-long">{premiumAccess ? "会员" : "免费"} · 24h 剩余</span>
             <span className="status-short">{premiumAccess ? "会员" : "免费"}</span>
-            <b>{count}</b><i>次</i>
+            <b>{accountSyncFailed ? "—" : count}</b><i>{accountSyncFailed ? "待同步" : "次"}</i>
           </button>
           {!account.signedIn && <a className="top-signin" href={signInHref}>登录 / 注册</a>}
           {account.signedIn && <button className="top-account" onClick={() => setModal("profile")}>我的账号</button>}
@@ -615,7 +646,7 @@ export default function Home() {
       {page === "create" && <CreatePage scene={scene} setScene={setScene} topic={topic} setTopic={setTopic} details={details} setDetails={setDetails} audience={audience} setAudience={setAudience} purpose={purpose} setPurpose={setPurpose} requirements={requirements} setRequirements={setRequirements} style={style} setStyle={setStyle} length={length} setLength={setLength} versionCount={versionCount} chooseVersionCount={chooseVersionCount} advancedOptions={advancedOptions} setAdvancedOption={setAdvancedOption} premiumAccess={premiumAccess} openMember={() => setModal("member")} generate={generate} generating={generating} results={results} error={generationError} engineLabel={engineLabel} receipt={generationReceipt} updateResult={updateResultAt} copy={copy} favorite={favorite} refine={refineResult} exportResults={exportResults} share={() => setModal("share")} />}
       {page === "tools" && <ToolsPage tool={tool} setTool={chooseTool} text={toolText} setText={setToolText} result={toolResult} error={toolError} run={runTool} generating={generating} copy={copy} intensity={toolIntensity} setIntensity={setToolIntensity} preference={toolPreference} setPreference={setToolPreference} inputLimit={premiumAccess ? MEMBERSHIP_TIERS.member.inputChars : MEMBERSHIP_TIERS.free.inputChars} engineLabel={engineLabel} receipt={toolReceipt} />}
       {page === "library" && <LibraryPage search={search} setSearch={setSearch} filter={filter} setFilter={setFilter} groups={groups} scenes={shownScenes} chooseScene={chooseScene} copy={copy} />}
-      {page === "history" && <HistoryPage history={history} setHistory={setHistory} copy={copy} choose={(d) => {
+      {page === "history" && <HistoryPage history={history} setHistory={setHistory} copy={copy} choose={(d: Draft) => {
         const context = (d.batchId ? history.find(item => item.batchId === d.batchId && (item.topic || item.details)) : null) || d;
         const s = scenes.find(x => x.name === d.scene) || scenes[0];
         setScene(s);
@@ -630,16 +661,16 @@ export default function Home() {
         setPage("create");
       }} />}
       {page === "updates" && <UpdatesPanel />}
-      <footer className="site-footer"><span>妙笔AI · AI 生成内容请人工核对后使用</span><div><button onClick={() => setPage("updates")}>更新日志</button><button onClick={() => setModal("legal")}>服务、隐私与退款说明</button><a href="/admin">站长登录</a></div></footer>
+      <footer className="site-footer"><span>妙笔AI · AI 生成内容请人工核对后使用</span><div><button onClick={() => setPage("updates")}>更新日志</button>{isStaticMode() ? <button onClick={() => setModal("legal")}>服务、隐私与退款说明</button> : <a href="/legal">服务、隐私与退款说明</a>}<a href="/admin">站长登录</a></div></footer>
     </main>
 
     <div className="mobile-dock">
-      <nav className="mobile-nav" aria-label="手机主导航">{nav.map(([id, icon, label]) => <button key={id} className={page === id ? "active" : ""} onClick={() => setPage(id)}><span>{icon}</span>{label}</button>)}</nav>
+      <nav className="mobile-nav" aria-label="手机主导航">{nav.map(([id, icon, label]) => <button key={id} aria-current={page === id ? "page" : undefined} className={page === id ? "active" : ""} onClick={() => setPage(id)}><span>{icon}</span>{label}</button>)}</nav>
       {account.signedIn
         ? <button className="mobile-account-entry signed-in" onClick={() => setModal("profile")} aria-label="打开我的账号"><span>{account.name?.slice(0, 1) || "我"}</span><small>我的</small></button>
         : <a className="mobile-account-entry" href={signInHref} aria-label="登录或注册"><span>♙</span><small>登录</small></a>}
     </div>
-    {toast && <div className="toast">✓ {toast}</div>}
+    {toast && <div className="toast" role="status" aria-live="polite">✓ {toast}</div>}
     {modal && <Modal type={modal} close={() => setModal(null)} account={account} copy={copy} />}
   </div>;
 }
@@ -682,7 +713,7 @@ function HomePage({ setPage, chooseScene, topic, setTopic, style, setStyle, gene
       <div className="scene-grid">{scenes.slice(0,6).map((s, i) => <button className={`scene-card ${i===0?'selected':''}`} key={s.id} onClick={() => chooseScene(s)}><span className={`scene-icon ${s.color}`}>{s.icon}</span><h3>{s.name}</h3><p>{s.desc}</p><b>→</b></button>)}</div>
     </section>
     <section className="update-peek" aria-label="最新更新"><div><span>{latestChangelog.version}</span><p><b>{latestChangelog.title}</b><small>{latestChangelog.date} · {latestChangelog.summary}</small></p></div><button onClick={() => setPage("updates")}>查看全部更新 →</button></section>
-    <section className="mini-banner"><div><span>♛</span><p><b>{premiumAccess ? "会员权益已生效：DeepSeek 质量通道" : "访客与会员均由 DeepSeek 真实生成"}</b><small>访客每 24 小时 10 次；会员 100 次 · 6 个版本 · 12,000 字 · 高级控制 · 整组导出</small></p></div><button onClick={openMember}>{premiumAccess ? "查看我的权益" : "对比免费与会员"}</button></section>
+    <section className="mini-banner"><div><span>♛</span><p><b>{premiumAccess ? "会员效率权益已生效" : "访客与会员均由同一 DeepSeek 质量链路生成"}</b><small>访客每 24 小时 10 次；会员 100 次 · 6 个版本 · 12,000 字 · 高级控制 · 整组导出</small></p></div><button onClick={openMember}>{premiumAccess ? "查看我的权益" : "对比免费与会员"}</button></section>
   </div>;
 }
 
@@ -695,7 +726,7 @@ function CreatePage({ scene, setScene, topic, setTopic, details, setDetails, aud
   const completeness = materialFields * 20;
   const completenessText = completeness >= 80 ? "素材很完整，可以直接生成" : completeness >= 60 ? "素材基本完整，结果会更贴合" : completeness >= 40 ? "建议再补充受众或具体事实" : "信息较少，结果容易偏通用";
   return <div className="page create-page">
-    <div className="page-head"><div><span className={`scene-icon ${scene.color}`}>{scene.icon}</span><div><p>{premiumAccess ? "会员 DeepSeek 质量通道" : "访客 DeepSeek 标准通道 · 每 24 小时 10 次"}</p><h1>{scene.name}</h1></div></div><button className="ghost" onClick={premiumAccess ? undefined : openMember}>{premiumAccess ? "♛ 会员模式" : "♛ 查看高级权益"}</button></div>
+    <div className="page-head"><div><span className={`scene-icon ${scene.color}`}>{scene.icon}</span><div><p>{premiumAccess ? "会员效率模式 · 同一事实质量闸门" : "访客 DeepSeek 模式 · 每 24 小时 10 次"}</p><h1>{scene.name}</h1></div></div><button className="ghost" onClick={openMember}>{premiumAccess ? "♛ 查看会员权益" : "♛ 查看高级权益"}</button></div>
     <div className="workspace">
       <section className="form-panel panel">
         <label>选择创作场景</label><div className="scene-tabs">{relatedScenes.map(s => <button key={s.id} className={scene.id===s.id?'active':''} onClick={() => {setScene(s);}}>{s.name}</button>)}</div>
@@ -739,7 +770,7 @@ function LibraryPage({ search, setSearch, filter, setFilter, groups, scenes, cho
 
 function HistoryPage({ history, setHistory, copy, choose }: any) {
   const [tab,setTab]=useState("全部记录"); const list=tab==="我的收藏"?history.filter((x:Draft)=>x.favorite):history;
-  return <div className="page"><div className="title-row"><div><h1>历史与草稿</h1><p>每个生成版本都会保存在当前浏览器，点击可继续编辑</p></div><button className="ghost" onClick={()=>{if(confirm("确定清空当前浏览器中的全部创作记录？此操作无法恢复。")) setHistory([]);}}>清空记录</button></div><div className="history-tabs"><button className={tab==="全部记录"?'active':''} onClick={()=>setTab("全部记录")}>全部记录 <b>{history.length}</b></button><button className={tab==="我的收藏"?'active':''} onClick={()=>setTab("我的收藏")}>我的收藏 <b>{history.filter((x:Draft)=>x.favorite).length}</b></button></div>{list.length?<div className="history-list">{list.map((d:Draft)=><article key={d.id}><button className={`star ${d.favorite?'on':''}`} aria-label={d.favorite?"取消收藏":"收藏"} onClick={()=>setHistory((h:Draft[])=>h.map(x=>x.id===d.id?{...x,favorite:!x.favorite}:x))}>★</button><div className="history-main" onClick={()=>choose(d)}><span>{d.scene}</span><h3>{d.title}</h3><p>{d.content}</p><small>{relativeTime(d.createdAt)}</small></div><div className="history-actions"><button onClick={()=>copy(d.content)}>复制</button><button onClick={()=>setHistory((h:Draft[])=>h.filter(x=>x.id!==d.id))}>删除</button></div></article>)}</div>:<div className="empty-list"><span>◷</span><h2>这里还没有内容</h2><p>生成后的所有版本都会显示在这里</p></div>}</div>;
+  return <div className="page"><div className="title-row"><div><h1>历史与草稿</h1><p>每个生成版本都会保存在当前浏览器，点击可继续编辑</p></div><button className="ghost" onClick={()=>{if(confirm("确定清空当前浏览器中的全部创作记录？此操作无法恢复。")) setHistory([]);}}>清空记录</button></div><div className="history-tabs"><button className={tab==="全部记录"?'active':''} onClick={()=>setTab("全部记录")}>全部记录 <b>{history.length}</b></button><button className={tab==="我的收藏"?'active':''} onClick={()=>setTab("我的收藏")}>我的收藏 <b>{history.filter((x:Draft)=>x.favorite).length}</b></button></div>{list.length?<div className="history-list">{list.map((d:Draft)=><article key={d.id}><button className={`star ${d.favorite?'on':''}`} aria-label={d.favorite?"取消收藏":"收藏"} onClick={()=>setHistory((h:Draft[])=>h.map(x=>x.id===d.id?{...x,favorite:!x.favorite}:x))}>★</button><button className="history-main" aria-label={`继续编辑：${d.title}`} onClick={()=>choose(d)}><span>{d.scene}</span><h3>{d.title}</h3><p>{d.content}</p><small>{relativeTime(d.createdAt)}</small></button><div className="history-actions"><button onClick={()=>copy(d.content)}>复制</button><button onClick={()=>setHistory((h:Draft[])=>h.filter(x=>x.id!==d.id))}>删除</button></div></article>)}</div>:<div className="empty-list"><span>◷</span><h2>这里还没有内容</h2><p>生成后的所有版本都会显示在这里</p></div>}</div>;
 }
 
 function UpdatesPanel() {
@@ -749,6 +780,7 @@ function UpdatesPanel() {
 function Modal({ type, close, account, copy }: any) {
   const payment = manualPayment();
   const staticMode = isStaticMode();
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [selectedPlan, setSelectedPlan] = useState("月度会员 · ¥19.9");
   const methods: PaymentMethod[] = payment.methods?.filter(method => method.qr) || (payment.qr ? [{ id: "wechat", name: "微信支付", qr: payment.qr, crop: "wechat" }] : []);
   const [selectedMethodId, setSelectedMethodId] = useState(methods[0]?.id || "");
@@ -759,14 +791,45 @@ function Modal({ type, close, account, copy }: any) {
     { name: "学生特惠", price: "9.9", note: "30 天 · 人工核验学生身份" },
   ];
   useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") close(); };
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusable = () => [...(dialogRef.current?.querySelectorAll<HTMLElement>(
+      'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])',
+    ) || [])];
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const items = focusable();
+      if (!items.length) {
+        event.preventDefault();
+        dialogRef.current?.focus();
+        return;
+      }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", onKeyDown);
-    return () => { document.body.style.overflow = previousOverflow; window.removeEventListener("keydown", onKeyDown); };
+    requestAnimationFrame(() => (focusable()[0] || dialogRef.current)?.focus());
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+      previouslyFocused?.focus();
+    };
   }, [close]);
   return <div className="modal-backdrop" onMouseDown={close}>
-    <div className={`modal ${type}`} role="dialog" aria-modal="true" aria-label={type === "member" ? "会员与付款" : "妙笔AI弹窗"} onMouseDown={event => event.stopPropagation()}>
+    <div ref={dialogRef} tabIndex={-1} className={`modal ${type}`} role="dialog" aria-modal="true" aria-label={type === "member" ? "会员与付款" : "妙笔AI弹窗"} onMouseDown={event => event.stopPropagation()}>
       <button className="modal-close" aria-label="关闭弹窗" onClick={close}>×</button>
       {type === "member" && <>
         <span className="modal-icon">♛</span>
@@ -778,7 +841,7 @@ function Modal({ type, close, account, copy }: any) {
         <div className="member-compare">
           <div className="compare-head"><span>权益</span><b>免费版</b><strong>会员版</strong></div>
           <div><span>滚动 24 小时额度</span><b>10 次</b><strong>100 次</strong></div>
-          <div><span>生成引擎</span><b>DeepSeek</b><strong>DeepSeek 优先通道</strong></div>
+          <div><span>生成与事实检查</span><b>DeepSeek</b><strong>同一质量链路</strong></div>
           <div><span>单次版本</span><b>3 个</b><strong>6 个</strong></div>
           <div><span>输入长度</span><b>4,000 字</b><strong>12,000 字</strong></div>
           <div><span>高级控制</span><b>事实保护</b><strong>事实保护＋3 项控制</strong></div>
@@ -830,7 +893,7 @@ function Modal({ type, close, account, copy }: any) {
         <section><h3>数据与隐私</h3><p>本站会处理匿名额度标识、账号邮箱、所选场景和生成记录，以提供额度、历史与运营统计；生成时，用户提交的主题、素材、受众和要求会发送给 DeepSeek。API Key 只保存在服务端秘密环境或加密存储中，不会进入网页或小程序代码。</p></section>
         <section><h3>人工收款与开通</h3><p>微信、支付宝个人码没有自动支付回调。付款前应确认套餐并保留支付记录，站长核对金额、付款时间和登录邮箱后在运营后台人工开通；不要只凭截图认定到账。</p></section>
         <section><h3>退款处理</h3><p>重复付款、金额错误或付款后未开通权益，可核对到账记录后原路退款；已开通并使用的服务，按未使用天数或未消费权益协商处理。退款与开通均保留操作记录。</p></section>
-        <section><h3>联系站长</h3><p>客服方式由部署者在上线前配置。请勿通过公开渠道发送 API Key、银行卡密码、验证码或其他敏感凭据。</p></section>
+        <section><h3>联系站长</h3><p>请通过部署方在站点中公布的联系方式联系站长。请勿发送 API Key、银行卡密码、验证码或其他敏感凭据。</p></section>
       </div>}
     </div>
   </div>;

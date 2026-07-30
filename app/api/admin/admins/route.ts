@@ -23,7 +23,13 @@ export async function GET(request: Request) {
   if (current.error) return current.error;
   const { user, config } = current;
   const delegated = await config.DB.prepare(`SELECT email, active, created_by, created_at, updated_at
-    FROM site_admins ORDER BY created_at ASC`).all();
+    FROM site_admins ORDER BY created_at ASC`).all<{
+      email: string;
+      active: number;
+      created_by: string;
+      created_at: number;
+      updated_at: number;
+    }>();
   return json({
     canManage: isRootAdmin(user.email, config),
     currentEmail: user.email,

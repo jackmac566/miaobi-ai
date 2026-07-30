@@ -81,8 +81,16 @@ export async function hasAdminAccess(email: string | null, config: RuntimeEnv) {
   return Number(row?.active || 0) === 1;
 }
 
+const schemaReady = new WeakMap<object, Promise<unknown>>();
+
 export async function ensureSchema(db: D1Database) {
-  await db.batch([
+  const dbKey = db as unknown as object;
+  const cached = schemaReady.get(dbKey);
+  if (cached) {
+    await cached;
+    return;
+  }
+  const ready = db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS users (
       email TEXT PRIMARY KEY,
       display_name TEXT,
@@ -91,6 +99,10 @@ export async function ensureSchema(db: D1Database) {
       created_at INTEGER NOT NULL,
       last_seen_at INTEGER NOT NULL
     )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS users_created_idx
+      ON users(created_at)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS users_plan_expires_idx
+      ON users(plan, plan_expires_at)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS generations (
       id TEXT PRIMARY KEY,
       user_email TEXT NOT NULL,
@@ -105,6 +117,10 @@ export async function ensureSchema(db: D1Database) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS generations_user_created_idx
       ON generations(user_email, created_at)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS generations_model_created_idx
+      ON generations(model, created_at)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS generations_created_idx
+      ON generations(created_at)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS orders (
       id TEXT PRIMARY KEY,
       user_email TEXT NOT NULL,
@@ -117,6 +133,8 @@ export async function ensureSchema(db: D1Database) {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS orders_status_created_idx
       ON orders(status, created_at)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS orders_paid_idx
+      ON orders(status, paid_at)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS app_settings (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL,
@@ -167,6 +185,13 @@ export async function ensureSchema(db: D1Database) {
       checked_at INTEGER NOT NULL
     )`),
   ]);
+  schemaReady.set(dbKey, ready);
+  try {
+    await ready;
+  } catch (error) {
+    schemaReady.delete(dbKey);
+    throw error;
+  }
 }
 
 export async function reserveDailyUsage(db: D1Database, userEmail: string, limit: number) {

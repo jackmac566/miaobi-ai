@@ -7,7 +7,10 @@ export const users = sqliteTable("users", {
   planExpiresAt: integer("plan_expires_at"),
   createdAt: integer("created_at").notNull(),
   lastSeenAt: integer("last_seen_at").notNull(),
-});
+}, table => [
+  index("users_created_idx").on(table.createdAt),
+  index("users_plan_expires_idx").on(table.plan, table.planExpiresAt),
+]);
 
 export const generations = sqliteTable("generations", {
   id: text("id").primaryKey(),
@@ -20,7 +23,11 @@ export const generations = sqliteTable("generations", {
   promptTokens: integer("prompt_tokens").notNull().default(0),
   completionTokens: integer("completion_tokens").notNull().default(0),
   createdAt: integer("created_at").notNull(),
-});
+}, table => [
+  index("generations_user_created_idx").on(table.userEmail, table.createdAt),
+  index("generations_model_created_idx").on(table.model, table.createdAt),
+  index("generations_created_idx").on(table.createdAt),
+]);
 
 export const orders = sqliteTable("orders", {
   id: text("id").primaryKey(),
@@ -31,7 +38,10 @@ export const orders = sqliteTable("orders", {
   providerTradeNo: text("provider_trade_no"),
   createdAt: integer("created_at").notNull(),
   paidAt: integer("paid_at"),
-});
+}, table => [
+  index("orders_status_created_idx").on(table.status, table.createdAt),
+  index("orders_paid_idx").on(table.status, table.paidAt),
+]);
 
 export const appSettings = sqliteTable("app_settings", {
   key: text("key").primaryKey(),

@@ -28,10 +28,13 @@ test("expired or free plans never receive membership access", () => {
 });
 
 test("public changelog is newest first and contains the current release", () => {
-  assert.equal(changelog[0].version, "V1.4.5");
+  assert.equal(changelog[0].version, "V1.5.0");
   assert.equal(changelog[0].current, true);
-  assert.ok(changelog[0].highlights.some(item => item.includes("Project Name")));
-  assert.ok(changelog[0].fixes?.some(item => item.includes("already exists")));
+  assert.match(changelog[0].summary, /十轮/);
+  assert.equal(changelog[0].highlights.length, 10);
+  const v145 = changelog.find(item => item.version === "V1.4.5");
+  assert.ok(v145?.highlights.some(item => item.includes("Project Name")));
+  assert.ok(v145?.fixes?.some(item => item.includes("already exists")));
   assert.equal(changelog.at(-1)?.version, "V1.0.0");
   assert.deepEqual([...changelog].map(item => item.date), [...changelog].map(item => item.date).sort().reverse());
 });

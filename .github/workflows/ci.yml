@@ -9,27 +9,17 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Use Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.13.0
           cache: npm
-
-      - name: Install
-        run: npm ci --no-audit --no-fund
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Test
-        run: npm test
-
-      - name: Build Cloudflare edition
-        run: npm run build:cloudflare
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm test
+      - run: npm run build:cloudflare

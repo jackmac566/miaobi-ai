@@ -37,11 +37,6 @@ test("renders development preview metadata", async () => {
   assert.doesNotMatch(html, /Starter Project/);
 });
 
-test("open-source package excludes operator-owned payment QR images", async () => {
-  await assert.rejects(readFile(new URL("../public/payment/wechat-pay.png", import.meta.url)));
-  await assert.rejects(readFile(new URL("../public/payment/alipay-pay.png", import.meta.url)));
-});
-
 test("PWA shell is installable without caching account or admin APIs", async () => {
   const [serviceWorker, staticServiceWorker, manifest, staticPayment] = await Promise.all([
     readFile(new URL("../public/sw.js", import.meta.url), "utf8"),
@@ -51,9 +46,27 @@ test("PWA shell is installable without caching account or admin APIs", async () 
   ]);
   assert.match(serviceWorker, /pathname\.startsWith\(\"\/api\/\"\)/);
   assert.match(serviceWorker, /pathname\.startsWith\(\"\/admin\"\)/);
-  assert.match(staticServiceWorker, /miaobi-shell-v1\.4\.5/);
+  assert.match(staticServiceWorker, /miaobi-shell-v1\.5\.0/);
   assert.deepEqual(JSON.parse(manifest).icons.map(icon => icon.sizes), ["192x192", "512x512"]);
   assert.match(staticPayment, /enabled:\s*false/);
-  assert.doesNotMatch(staticPayment, /wechat-pay|alipay-pay|@gmail\.com/);
+  assert.match(staticPayment, /methods:\s*\[\]/);
+  assert.doesNotMatch(staticPayment, /wechat-pay|alipay-pay|shikanghou4/);
   assert.doesNotMatch(staticPayment, /手机号/);
+});
+
+test("open-source defaults contain no owner contact, payment QR or Sites project binding", async () => {
+  const [page, legal, payment, hosting] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/legal/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../cloudflare/public/payment-config.js", import.meta.url), "utf8"),
+    readFile(new URL("../.openai/hosting.example.json", import.meta.url), "utf8"),
+  ]);
+  const publicSource = `${page}\n${legal}\n${payment}`;
+  assert.doesNotMatch(publicSource, /shikanghou4|wechat-pay|alipay-pay/);
+  assert.match(publicSource, /enabled:\s*false/);
+  assert.deepEqual(JSON.parse(hosting), {
+    d1: "DB",
+    project_id: "replace-with-your-sites-project-id",
+    r2: null,
+  });
 });

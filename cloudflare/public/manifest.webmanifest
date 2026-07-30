@@ -7,6 +7,20 @@
   "display": "standalone",
   "background_color": "#fffaf5",
   "theme_color": "#ff6257",
+  "shortcuts": [
+    {
+      "name": "查看更新日志",
+      "short_name": "更新日志",
+      "url": "/updates",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "登录妙笔AI",
+      "short_name": "登录",
+      "url": "/login",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
   "icons": [
     {
       "src": "/icon-192.png",

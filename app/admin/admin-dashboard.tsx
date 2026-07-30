@@ -19,6 +19,13 @@ type Metrics = {
     todayLegacy: number;
     refundedOrders: number;
     activeAdmins: number;
+    rollingDeepSeek: number;
+    siteLimit: number;
+    siteRemaining: number;
+    rollingPromptTokens: number;
+    rollingCompletionTokens: number;
+    totalRevenueFen: number;
+    memberConversionRate: number;
   };
   popular: Array<{ scene: string; total: number }>;
   recent: Array<{ scene: string; created_at: number }>;
@@ -109,6 +116,16 @@ type MemberData = {
   orders: Array<{ id: string; user_email: string; product: string; amount_fen: number; status: string; provider_trade_no: string | null; created_at: number; paid_at: number | null }>;
 };
 
+type APIErrorBody = { error?: string };
+type MutationResult = APIErrorBody & {
+  message: string;
+  models?: Array<{ id: string; label: string }>;
+};
+
+async function responseJSON<T>(response: Response): Promise<T & APIErrorBody> {
+  return await response.json() as T & APIErrorBody;
+}
+
 export default function AdminDashboard() {
   const [tab, setTab] = useState<"overview" | "health" | "ai" | "members" | "admins">("overview");
   const [data, setData] = useState<Metrics | null>(null);
@@ -121,14 +138,14 @@ export default function AdminDashboard() {
 
   const loadMetrics = async () => {
     const response = await fetch("/api/admin/metrics", { cache: "no-store" });
-    const next = await response.json();
+    const next = await responseJSON<Metrics>(response);
     if (!response.ok) throw new Error(next.error || "读取失败");
     setData(next); setError("");
   };
 
   const loadSettings = async () => {
     const response = await fetch("/api/admin/ai-settings", { cache: "no-store" });
-    const next = await response.json();
+    const next = await responseJSON<AISettings>(response);
     if (!response.ok) throw new Error(next.error || "读取设置失败");
     setSettings(next);
   };
@@ -137,7 +154,7 @@ export default function AdminDashboard() {
     setHealthBusy(true);
     try {
       const response = await fetch("/api/admin/health", { cache: "no-store" });
-      const next = await response.json();
+      const next = await responseJSON<HealthReport>(response);
       if (!response.ok) throw new Error(next.error || "整站验收失败");
       setHealth(next);
       setError("");
@@ -151,14 +168,14 @@ export default function AdminDashboard() {
 
   const loadAdmins = async () => {
     const response = await fetch("/api/admin/admins", { cache: "no-store" });
-    const next = await response.json();
+    const next = await responseJSON<AdminAccess>(response);
     if (!response.ok) throw new Error(next.error || "读取站长列表失败");
     setAdmins(next);
   };
 
   const loadMembers = async () => {
     const response = await fetch("/api/admin/members", { cache: "no-store" });
-    const next = await response.json();
+    const next = await responseJSON<MemberData>(response);
     if (!response.ok) throw new Error(next.error || "读取会员失败");
     setMembers(next);
   };
@@ -192,10 +209,10 @@ export default function AdminDashboard() {
     if (!members) loadMembers().catch(next => setError(next instanceof Error ? next.message : "读取会员失败"));
   };
 
-  if (error && !data) return <main className="admin-real"><div className="admin-error">{error}</div></main>;
-  if (!data) return <main className="admin-real"><div className="admin-loading">正在读取真实数据…</div></main>;
+  if (error && !data) return <main className="admin-real" id="main-content"><div className="admin-error">{error}</div></main>;
+  if (!data) return <main className="admin-real" id="main-content"><div className="admin-loading">正在读取真实数据…</div></main>;
 
-  return <main className="admin-real">
+  return <><a className="skip-link" href="#main-content">跳到运营数据</a><main className="admin-real" id="main-content">
     <header><div><span>OWNER CONSOLE · {data.release}</span><h1>妙笔 AI · 运营后台</h1><p>当前：{data.currentUser.email} · {data.currentUser.role === "root" ? "主管理员" : "管理员"}。统计来自真实数据库，模块状态可随时重新验收。</p></div><div className="admin-header-actions"><button type="button" onClick={() => { location.href = "/"; }}>返回网站</button><a href="/signout-with-chatgpt?return_to=%2F">退出登录</a></div></header>
     <nav className="owner-tabs" aria-label="后台栏目">
       <button className={tab === "overview" ? "active" : ""} onClick={() => setTab("overview")}>数据概览</button>
@@ -210,7 +227,7 @@ export default function AdminDashboard() {
     {tab === "ai" && <AISettingsPanel settings={settings} reload={loadSettings} onConnected={loadMetrics} />}
     {tab === "members" && <MemberPanel members={members} reload={loadMembers} />}
     {tab === "admins" && <AdminAccessPanel admins={admins} reload={loadAdmins} />}
-  </main>;
+  </main></>;
 }
 
 function Overview({ data }: { data: Metrics }) {
@@ -231,6 +248,11 @@ function Overview({ data }: { data: Metrics }) {
       <article><span>今日旧版记录</span><b>{data.cards.todayLegacy}</b></article>
       <article><span>有效站长</span><b>{data.cards.activeAdmins}</b></article>
       <article><span>累计退款记录</span><b>{data.cards.refundedOrders}</b></article>
+      <article><span>24h 站点调用</span><b>{data.cards.rollingDeepSeek} / {data.cards.siteLimit}</b></article>
+      <article><span>24h 剩余额度</span><b>{data.cards.siteRemaining}</b></article>
+      <article><span>24h Token</span><b>{(data.cards.rollingPromptTokens + data.cards.rollingCompletionTokens).toLocaleString("zh-CN")}</b></article>
+      <article><span>会员转化率</span><b>{data.cards.memberConversionRate}%</b></article>
+      <article><span>累计实收</span><b>¥ {(data.cards.totalRevenueFen / 100).toFixed(2)}</b></article>
     </section>
     <section className="admin-alerts"><div className="section-title"><h2>运营提醒</h2><span>根据真实配置自动生成</span></div>{data.alerts.map(alert => <article className={alert.level} key={alert.title}><span>{alert.level === "warning" ? "!" : alert.level === "ok" ? "✓" : "i"}</span><div><b>{alert.title}</b><p>{alert.detail}</p></div></article>)}</section>
     <section className="real-grid">
@@ -305,7 +327,7 @@ function AISettingsPanel({ settings, reload, onConnected }: { settings: AISettin
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, provider: selected.id, apiKey: apiKey || undefined, model }),
       });
-      const next = await response.json();
+      const next = await responseJSON<MutationResult>(response);
       if (!response.ok) throw new Error(next.error || "操作失败");
       if (action === "models" && Array.isArray(next.models)) setCatalog(next.models);
       setMessage(next.message);
@@ -400,7 +422,7 @@ function MemberPanel({ members, reload }: { members: MemberData | null; reload: 
           orderId,
         }),
       });
-      const next = await response.json();
+      const next = await responseJSON<MutationResult>(response);
       if (!response.ok) throw new Error(next.error || "操作失败");
       setMessage(next.message);
       if (action === "grant") {
@@ -453,7 +475,7 @@ function AdminAccessPanel({ admins, reload }: { admins: AdminAccess | null; relo
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, email: targetEmail }),
       });
-      const next = await response.json();
+      const next = await responseJSON<MutationResult>(response);
       if (!response.ok) throw new Error(next.error || "操作失败");
       setMessage(next.message); setEmail(""); await reload();
     } catch (next) { setFormError(next instanceof Error ? next.message : "操作失败"); }

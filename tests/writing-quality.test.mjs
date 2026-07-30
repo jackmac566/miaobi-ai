@@ -6,8 +6,11 @@ import {
   parseGeneratedVersions,
   SUPPORTED_WRITING_SCENES,
   unsupportedClaims,
+  unsupportedCallsToAction,
   unsupportedFactInferences,
   unsupportedNumbers,
+  aiWritingTells,
+  missingRequiredFacts,
 } from "../lib/writing-quality.ts";
 import {
   normalizeToolPreference,
@@ -36,6 +39,20 @@ test("all 43 advertised scenes are covered by the DeepSeek writing prompt matrix
     assert.match(prompt, /只返回合法JSON/, scene);
     assert.match(prompt, /7月30日/, scene);
   }
+});
+
+test("all 43 scenes use distinct deliverable and writing-focus contracts", () => {
+  const contracts = SUPPORTED_WRITING_SCENES.map(scene => {
+    const prompt = buildWritingPrompt({
+      scene,
+      topic: "用户提供的真实素材",
+      style: "自然松弛",
+      versions: 3,
+      options: { emoji: false, autoFormat: false, riskGuard: true },
+    });
+    return `${prompt.match(/最终交付：([^\n]+)/)?.[1]}|${prompt.match(/写作重点：([^\n]+)/)?.[1]}`;
+  });
+  assert.equal(new Set(contracts).size, 43, "scene modules must not reuse a generic contract");
 });
 
 test("external prompt keeps material as data and requests scene-specific JSON", () => {
@@ -137,4 +154,19 @@ test("fact gate rejects invented figures and unsupported experience claims", () 
   );
   assert.deepEqual(unsupportedFactInferences("活动完全免费。", "活动地点在社区活动室。"), ["免费"]);
   assert.deepEqual(unsupportedFactInferences("活动完全免费。", "本次活动免费。"), []);
+});
+
+test("strict transformations preserve source facts and reject AI-like filler", () => {
+  const source = "DeepSeek 发布会定在7月30日晚上7点，联系 foo@example.com，详情见 https://example.com。";
+  assert.deepEqual(
+    missingRequiredFacts("DeepSeek 发布会定在7月30日晚上7点。", source, "内容改写"),
+    ["foo@example.com", "https://example.com"],
+  );
+  assert.deepEqual(
+    unsupportedCallsToAction("DeepSeek 发布会定在7月30日晚上7点，欢迎点赞关注。", source, "内容改写"),
+    ["欢迎点赞关注"],
+  );
+  assert.ok(aiWritingTells("以下是为你改写的正文。", source).length > 0);
+  assert.deepEqual(unsupportedNumbers("活动持续3天。", "活动时间待定。"), ["3"]);
+  assert.deepEqual(unsupportedNumbers("1. 核对时间\n2. 核对地点", source), []);
 });

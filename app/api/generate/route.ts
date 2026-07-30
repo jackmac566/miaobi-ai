@@ -15,8 +15,11 @@ import { fetchAIChat, providerErrorMessage, readAIChatResponse } from "../../../
 import { hasActiveMembership, MEMBERSHIP_TIERS } from "../../../lib/membership";
 import { appliedControlSummary } from "../../../lib/writing-controls";
 import {
+  aiWritingTells,
   buildWritingPrompt,
+  missingRequiredFacts,
   parseGeneratedVersions,
+  unsupportedCallsToAction,
   unsupportedClaims,
   unsupportedFactInferences,
   unsupportedNumbers,
@@ -52,7 +55,7 @@ type RequestBody = {
   options?: Partial<WritingOptions>;
 };
 
-function safeResults(content: string, versionCount: number, sourceMaterial: string) {
+function safeResults(content: string, versionCount: number, sourceMaterial: string, tool?: string) {
   return parseGeneratedVersions(content, versionCount)
     .map(item => item.trim())
     .filter(Boolean)
@@ -60,17 +63,23 @@ function safeResults(content: string, versionCount: number, sourceMaterial: stri
       unsupportedNumbers(item, sourceMaterial).length === 0
       && unsupportedClaims(item, sourceMaterial).length === 0
       && unsupportedFactInferences(item, sourceMaterial).length === 0
+      && unsupportedCallsToAction(item, sourceMaterial, tool).length === 0
+      && aiWritingTells(item, sourceMaterial).length === 0
+      && missingRequiredFacts(item, sourceMaterial, tool).length === 0
     )
     .filter((item, index, all) => all.indexOf(item) === index)
     .slice(0, versionCount);
 }
 
-function candidateViolations(content: string, versionCount: number, sourceMaterial: string) {
+function candidateViolations(content: string, versionCount: number, sourceMaterial: string, tool?: string) {
   const findings = new Set<string>();
   for (const item of parseGeneratedVersions(content, versionCount)) {
     for (const value of unsupportedNumbers(item, sourceMaterial)) findings.add(`新增数字：${value}`);
     for (const value of unsupportedClaims(item, sourceMaterial)) findings.add(`无依据结论：${value}`);
     for (const value of unsupportedFactInferences(item, sourceMaterial)) findings.add(`无依据推断：${value}`);
+    for (const value of unsupportedCallsToAction(item, sourceMaterial, tool)) findings.add(`擅自增加行动号召：${value}`);
+    for (const value of aiWritingTells(item, sourceMaterial)) findings.add(`AI套话：${value}`);
+    for (const value of missingRequiredFacts(item, sourceMaterial, tool)) findings.add(`遗漏原文关键信息：${value}`);
   }
   return [...findings].slice(0, 12);
 }
@@ -189,6 +198,9 @@ export async function POST(request: Request) {
       ],
       maxTokens: body?.tool ? 1800 : versionCount > 3 ? 4200 : 2800,
       temperature: body?.tool ? 0.15 : 0.65,
+      jsonMode: true,
+      signal: request.signal,
+      timeoutMs: 24_000,
     });
     if (!firstResponse.ok) {
       const detail = await providerErrorMessage("deepseek", firstResponse);
@@ -208,10 +220,10 @@ export async function POST(request: Request) {
     promptTokens += first.usage?.prompt_tokens || 0;
     completionTokens += first.usage?.completion_tokens || 0;
     resolvedModel = first.resolvedModel || deepSeek.model;
-    results = safeResults(first.content, versionCount, fullMaterial);
+    results = safeResults(first.content, versionCount, fullMaterial, body?.tool);
 
     if (results.length < versionCount) {
-      const firstViolations = candidateViolations(first.content, versionCount, fullMaterial);
+      const firstViolations = candidateViolations(first.content, versionCount, fullMaterial, body?.tool);
       const retryResponse = await fetchAIChat({
         provider: "deepseek",
         apiKey: deepSeek.apiKey,
@@ -229,26 +241,34 @@ export async function POST(request: Request) {
 3. 不得新增素材中没有的条件、资格、费用、报名预约、审核、时间流程或因果推断；“现场登记”不能改写成“无需提前报名”；
 4. 删除上面列出的具体问题，原文中的绝对日期、时间、数字、地点和专有名词保持原样；
 5. 文本处理不得增加“更轻松、更方便、不慌不忙”等主观结果或收尾评价；
-6. 各版本必须在角度、开头和句式上明显不同；
-7. 只输出最终成品，不解释修改过程。`,
+6. 润色、改写、扩写、翻译、校对和风格转换必须保留原文中的数字、日期、网址、邮箱和英文专名；
+7. 文本处理不得擅自添加“欢迎来、感兴趣可以、有空来坐坐、立即报名”等原文没有的行动号召；
+8. 各版本必须在角度、开头和句式上明显不同；
+9. 只输出最终成品，不解释修改过程。`,
           },
         ],
         maxTokens: body?.tool ? 1800 : versionCount > 3 ? 4200 : 2800,
         temperature: 0.1,
+        jsonMode: true,
+        signal: request.signal,
+        timeoutMs: 12_000,
       });
       if (retryResponse.ok) {
         const retry = await readAIChatResponse(retryResponse);
         promptTokens += retry.usage?.prompt_tokens || 0;
         completionTokens += retry.usage?.completion_tokens || 0;
         resolvedModel = retry.resolvedModel || resolvedModel;
-        const retryResults = safeResults(retry.content, versionCount, fullMaterial);
+        const retryResults = safeResults(retry.content, versionCount, fullMaterial, body?.tool);
         if (retryResults.length > results.length) results = retryResults;
       }
     }
 
-    if (!results.length) {
+    if (results.length < versionCount) {
       await releaseRollingUsage(config.DB, reservation.key);
-      return json({ error: "DeepSeek 本次输出未通过事实与质量检查，本次不扣次数，请补充真实素材后重试", code: "QUALITY_REJECTED" }, 422);
+      return json({
+        error: `DeepSeek 本次只生成了 ${results.length} / ${versionCount} 个通过事实与质量检查的版本，本次不扣次数；请补充真实素材后重试`,
+        code: "QUALITY_REJECTED",
+      }, 422);
     }
 
     await recordAIProviderCheck(config.DB, {

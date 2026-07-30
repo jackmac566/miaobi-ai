@@ -48,7 +48,10 @@ export async function GET(request: Request) {
     const tableResults = await Promise.all(databaseTables.map(table =>
       config.DB.prepare(`SELECT COUNT(*) AS total FROM ${table}`).first<{ total: number }>(),
     ));
-    const rowTotal = tableResults.reduce((sum, row) => sum + Number(row?.total || 0), 0);
+    const rowTotal = tableResults.reduce(
+      (sum: number, row: { total: number } | null) => sum + Number(row?.total || 0),
+      0,
+    );
     checks.push({
       id: "database",
       label: "数据库与业务表",

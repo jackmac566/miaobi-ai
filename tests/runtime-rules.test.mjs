@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { readFile } from "node:fs/promises";
 
-import { AI_PROVIDERS, readAIChatResponse } from "../lib/ai-providers.ts";
+import { AI_PROVIDERS, fetchAIChat, readAIChatResponse } from "../lib/ai-providers.ts";
 import { chinaDayStart, usageDateKey } from "../lib/date-rules.ts";
 
 test("legacy calendar helpers remain deterministic for historical data", () => {
@@ -44,6 +44,34 @@ test("provider connection verification requires a non-empty model response", asy
     choices: [{ message: { content: "供应商内部思考\n</think>\n最终成品" } }],
   })));
   assert.equal(cleanedOrphan.content, "最终成品");
+});
+
+test("DeepSeek V4 requests disable thinking and use real JSON mode", async t => {
+  let captured = null;
+  t.mock.method(globalThis, "fetch", async (_url, init) => {
+    captured = JSON.parse(String(init?.body || "{}"));
+    return new Response(JSON.stringify({
+      model: "deepseek-v4-flash",
+      choices: [{ message: { content: "{\"versions\":[\"真实成品\"]}" } }],
+    }));
+  });
+
+  const response = await fetchAIChat({
+    provider: "deepseek",
+    apiKey: "test-key-never-sent",
+    model: "deepseek-v4-flash",
+    messages: [{ role: "user", content: "返回 JSON" }],
+    maxTokens: 800,
+    temperature: 0.42,
+    jsonMode: true,
+    timeoutMs: 5_000,
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(captured.thinking, { type: "disabled" });
+  assert.deepEqual(captured.response_format, { type: "json_object" });
+  assert.equal(captured.temperature, 0.42);
+  assert.equal(captured.max_tokens, 800);
 });
 
 test("provider activation performs database readback before reporting success", async () => {

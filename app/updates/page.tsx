@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 
 export default function UpdatesPage() {
   return (
-    <main className="updates-shell">
+    <><a className="skip-link" href="#main-content">跳到更新记录</a><main className="updates-shell" id="main-content">
       <header className="updates-header">
         <Link className="updates-brand" href="/"><span className="brand-mark">✎</span><b>妙笔AI</b></Link>
         <Link className="updates-back" href="/">返回创作台 →</Link>
@@ -45,6 +45,6 @@ export default function UpdatesPage() {
         ))}
       </section>
       <footer className="updates-footer">妙笔AI · 公开记录真实上线变化</footer>
-    </main>
+    </main></>
   );
 }

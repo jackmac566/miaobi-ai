@@ -1,8 +1,11 @@
-const VERSION = "V1.4.5";
+const VERSION = "V1.5.0";
 const FREE_LIMIT = 10;
 const MEMBER_LIMIT = 100;
 const WINDOW_MS = 24 * 60 * 60 * 1000;
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+const AUTH_WINDOW_MS = 15 * 60 * 1000;
+const AUTH_BLOCK_MS = 30 * 60 * 1000;
+const AUTH_MAX_FAILURES = 8;
 
 function json(data, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(data), {
@@ -11,6 +14,12 @@ function json(data, status = 200, extraHeaders = {}) {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
       "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "strict-origin-when-cross-origin",
+      "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+      "X-Frame-Options": "DENY",
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Resource-Policy": "same-origin",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
       ...extraHeaders,
     },
   });
@@ -33,7 +42,7 @@ async function sha256(value) {
 }
 
 async function signingKey(env) {
-  const secret = env.SESSION_SECRET || env.ADMIN_PASSWORD;
+  const secret = env.SESSION_SECRET;
   if (!secret) return null;
   return crypto.subtle.importKey(
     "raw",
@@ -111,8 +120,11 @@ async function constantTimeTextEqual(left, right) {
   return difference === 0;
 }
 
+const schemaReady = new WeakMap();
+
 async function ensureSchema(db) {
-  await db.batch([
+  if (schemaReady.has(db)) return schemaReady.get(db);
+  const ready = db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS users (
       email TEXT PRIMARY KEY,
       display_name TEXT,
@@ -126,6 +138,13 @@ async function ensureSchema(db) {
       password_hash TEXT NOT NULL,
       salt TEXT NOT NULL,
       created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS auth_rate_limits (
+      rate_key TEXT PRIMARY KEY,
+      failures INTEGER NOT NULL DEFAULT 0,
+      window_started_at INTEGER NOT NULL,
+      blocked_until INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS usage_windows (
@@ -164,7 +183,22 @@ async function ensureSchema(db) {
       detail TEXT NOT NULL,
       created_at INTEGER NOT NULL
     )`),
+    db.prepare("CREATE INDEX IF NOT EXISTS generations_user_created_idx ON generations(user_email, created_at)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS generations_model_created_idx ON generations(model, created_at)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS generations_created_idx ON generations(created_at)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS users_created_idx ON users(created_at)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS users_plan_expires_idx ON users(plan, plan_expires_at)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS orders_status_created_idx ON orders(status, created_at)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS orders_paid_idx ON orders(status, paid_at)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS admin_audit_created_idx ON admin_audit(created_at)"),
   ]);
+  schemaReady.set(db, ready);
+  try {
+    await ready;
+  } catch (error) {
+    schemaReady.delete(db);
+    throw error;
+  }
 }
 
 async function visitorKey(request) {
@@ -223,20 +257,79 @@ function sameOrigin(request) {
   return !origin || origin === new URL(request.url).origin;
 }
 
+async function authRateKey(request, email) {
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  return `auth:${base64Url(await sha256(`${ip}|${String(email || "").toLowerCase()}`)).slice(0, 40)}`;
+}
+
+async function authRateStatus(db, key, now = Date.now()) {
+  const row = await db.prepare("SELECT failures, window_started_at, blocked_until FROM auth_rate_limits WHERE rate_key = ?")
+    .bind(key).first();
+  if (!row) return { blocked: false, failures: 0 };
+  if (Number(row.blocked_until || 0) > now) {
+    return { blocked: true, failures: Number(row.failures || 0), retryAt: Number(row.blocked_until) };
+  }
+  if (now - Number(row.window_started_at || 0) >= AUTH_WINDOW_MS) return { blocked: false, failures: 0 };
+  return { blocked: false, failures: Number(row.failures || 0) };
+}
+
+async function recordAuthFailure(db, key, now = Date.now()) {
+  const current = await authRateStatus(db, key, now);
+  const failures = current.failures + 1;
+  const blockedUntil = failures >= AUTH_MAX_FAILURES ? now + AUTH_BLOCK_MS : 0;
+  const windowStartedAt = current.failures ? now - Math.min(AUTH_WINDOW_MS - 1, AUTH_WINDOW_MS / 2) : now;
+  await db.prepare(`INSERT INTO auth_rate_limits
+    (rate_key, failures, window_started_at, blocked_until, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(rate_key) DO UPDATE SET
+      failures = excluded.failures,
+      window_started_at = CASE
+        WHEN auth_rate_limits.window_started_at <= ? THEN excluded.window_started_at
+        ELSE auth_rate_limits.window_started_at
+      END,
+      blocked_until = excluded.blocked_until,
+      updated_at = excluded.updated_at`)
+    .bind(key, failures, windowStartedAt, blockedUntil, now, now - AUTH_WINDOW_MS).run();
+  return { blocked: blockedUntil > now, retryAt: blockedUntil || undefined };
+}
+
+async function clearAuthFailures(db, key) {
+  await db.prepare("DELETE FROM auth_rate_limits WHERE rate_key = ?").bind(key).run();
+}
+
 function parseVersions(content, count) {
-  const clean = String(content || "").replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  const clean = String(content || "")
+    .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, "")
+    .replace(/<analysis\b[^>]*>[\s\S]*?<\/analysis>/gi, "")
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
   if (!clean) return [];
+  let candidates = [];
   try {
-    const parsed = JSON.parse(clean.match(/\[[\s\S]*\]/)?.[0] || "");
-    if (Array.isArray(parsed)) return parsed.map(String).map(value => value.trim()).filter(Boolean).slice(0, count);
+    const parsed = JSON.parse(clean);
+    if (Array.isArray(parsed)) candidates = parsed;
+    else if (parsed && typeof parsed === "object") {
+      candidates = parsed.versions || parsed.results || parsed.outputs || [];
+    }
   } catch {
     // Fall through to labeled plain text.
   }
-  return clean
-    .split(/\n(?=(?:版本\s*)?\d+[.、：:]|\n-{3,})/)
-    .map(value => value.replace(/^(?:版本\s*)?\d+[.、：:]\s*/, "").trim())
-    .filter(Boolean)
-    .slice(0, count);
+  if (!Array.isArray(candidates) || !candidates.length) {
+    candidates = clean.split(/\n(?=(?:版本\s*)?\d+[.、：:]|\n-{3,})/);
+  }
+  const results = [];
+  for (const value of candidates) {
+    const normalized = String(value || "")
+      .replace(/^(?:版本\s*)?\d+[.、：:]\s*/, "")
+      .replace(/^\s*(?:当然可以|好的|以下是|下面是)[，,:：\s]*/i, "")
+      .trim();
+    const fingerprint = canonical(normalized);
+    if (normalized.length < 2 || results.some(item => canonical(item) === fingerprint)) continue;
+    results.push(normalized);
+    if (results.length >= count) break;
+  }
+  return results;
 }
 
 const NEGATED_ACTION_PATTERN =
@@ -288,10 +381,111 @@ function unsupportedFactInferences(output, source) {
   return findings.filter(item => !findings.some(other => other !== item && other.includes(item)));
 }
 
-function candidateViolations(content, count, source) {
+function canonical(value) {
+  return String(value || "").replace(/[\s，。！？；：、,.!?;:'"“”‘’（）()\[\]【】《》<>-]/g, "").toLowerCase();
+}
+
+function sourceNumbers(value, excludeNegated = false) {
+  const material = String(value || "")
+    .replace(/^\s*\d{1,2}\s*[.、)）:-]\s*/gm, "")
+    .replace(/[【[(]?\d{1,2}\s*[-—~至]\s*\d{1,2}\s*(?:秒|分钟)[】)\]]?/g, "");
+  const found = new Set();
+  for (const match of material.matchAll(/\d+(?:[.,]\d+)?%?/g)) {
+    const before = material.slice(Math.max(0, match.index - 18), match.index);
+    if (excludeNegated && /(?:不要|禁止|避免|不得|不能|别)(?:再)?(?:写|出现|使用|添加|补充|编造|声称|宣传|承诺)?[^。！？；\n]{0,8}$/u.test(before)) continue;
+    found.add(match[0]);
+  }
+  return found;
+}
+
+function unsupportedNumbers(output, source) {
+  const allowed = sourceNumbers(source, true);
+  return [...sourceNumbers(output)].filter(value => !allowed.has(value));
+}
+
+const UNSUPPORTED_CLAIM_PATTERNS = [
+  /(?:本人亲测|亲测|亲身体验|我用过|我试过|本人体验|反复回购)/g,
+  /(?:顾客都说|客户都说|用户都说|大家都在|很多人都|全网都在)/g,
+  /(?:全网第一|行业第一|销量第一|最划算|效果最好|绝对有效|保证有效|立刻见效|永久有效)/g,
+  /[一二三四五六七八九十百千万两]+(?:天|周|个月|年|人|次|倍|元|％|%)/g,
+];
+
+function unsupportedClaims(output, source) {
+  const material = String(source || "");
+  const found = new Set();
+  for (const pattern of UNSUPPORTED_CLAIM_PATTERNS) {
+    for (const match of String(output || "").matchAll(pattern)) {
+      if (!canonical(material).includes(canonical(match[0]))) found.add(match[0]);
+    }
+  }
+  return [...found];
+}
+
+const STRICT_FACT_RETENTION_TOOLS = new Set([
+  "智能润色", "内容改写", "扩写充实", "多语言翻译", "纠错校对", "风格转换", "自然化改写",
+]);
+const CALL_TO_ACTION_PATTERN =
+  /(?:欢迎(?:大家|你|您|朋友们)?(?:前来|来|到店|咨询|联系|报名|参与|体验|关注|点赞(?:关注)?|收藏|转发)|感兴趣(?:的朋友|的话)?(?:可以|欢迎)?(?:前来|来|咨询|联系|报名|参与|体验|关注)|有空(?:来|过来|坐坐)|快来|赶紧|立即(?:购买|下单|报名|咨询|联系|参与)|别错过|期待(?:你|您|大家)?(?:的)?(?:到来|参与))/gu;
+const AI_WRITING_TELL_PATTERNS = [
+  /(?:作为|身为)(?:一个|一名)?AI/giu,
+  /根据你(?:所)?提供的(?:信息|内容|素材)/gu,
+  /(?:以下是|下面是)(?:为你|根据|我为你)?(?:整理|生成|改写|润色|创作)/gu,
+  /希望(?:以上|这些|这份)?(?:内容|文案|建议|信息)?(?:能够|能|可以)?(?:对你|给你)?(?:有所)?帮助/gu,
+  /如有需要(?:我|还)?(?:可以|可)?(?:继续|再)?(?:为你)?(?:修改|调整|补充|优化)/gu,
+];
+
+function unsupportedCallsToAction(output, source, tool) {
+  if (!tool || !STRICT_FACT_RETENTION_TOOLS.has(tool)) return [];
+  const found = new Set();
+  for (const match of String(output || "").matchAll(CALL_TO_ACTION_PATTERN)) {
+    if (!canonical(source).includes(canonical(match[0]))) found.add(match[0]);
+  }
+  return [...found];
+}
+
+function aiWritingTells(output, source) {
+  const found = new Set();
+  for (const pattern of AI_WRITING_TELL_PATTERNS) {
+    for (const match of String(output || "").matchAll(pattern)) {
+      if (!canonical(source).includes(canonical(match[0]))) found.add(match[0]);
+    }
+  }
+  return [...found];
+}
+
+function protectedTokens(source) {
+  const tokens = new Set(sourceNumbers(source, true));
+  for (const match of String(source || "").matchAll(
+    /(?:https?:\/\/[^\s，。！？；]+|[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+|#[^#\s，。！？；]{2,30}#?|[A-Za-z][A-Za-z0-9._+/-]{1,80})/g,
+  )) tokens.add(match[0]);
+  return [...tokens].slice(0, 60);
+}
+
+function missingRequiredFacts(output, source, tool) {
+  if (!tool || !STRICT_FACT_RETENTION_TOOLS.has(tool)) return [];
+  const normalized = canonical(output);
+  return protectedTokens(source).filter(token => !normalized.includes(canonical(token)));
+}
+
+function validResults(content, count, source, tool) {
+  return parseVersions(content, count)
+    .filter(item => unsupportedNumbers(item, source).length === 0)
+    .filter(item => unsupportedClaims(item, source).length === 0)
+    .filter(item => unsupportedFactInferences(item, source).length === 0)
+    .filter(item => unsupportedCallsToAction(item, source, tool).length === 0)
+    .filter(item => aiWritingTells(item, source).length === 0)
+    .filter(item => missingRequiredFacts(item, source, tool).length === 0);
+}
+
+function candidateViolations(content, count, source, tool) {
   const findings = new Set();
   for (const item of parseVersions(content, count)) {
+    for (const value of unsupportedNumbers(item, source)) findings.add(`新增数字：${value}`);
+    for (const value of unsupportedClaims(item, source)) findings.add(`无依据结论：${value}`);
     for (const value of unsupportedFactInferences(item, source)) findings.add(`无依据推断：${value}`);
+    for (const value of unsupportedCallsToAction(item, source, tool)) findings.add(`擅自增加行动号召：${value}`);
+    for (const value of aiWritingTells(item, source)) findings.add(`AI套话：${value}`);
+    for (const value of missingRequiredFacts(item, source, tool)) findings.add(`遗漏原文关键信息：${value}`);
   }
   return [...findings].slice(0, 12);
 }
@@ -402,7 +596,10 @@ ${body.tool ? `输出偏好：${controls.preference}\n输出偏好执行规则�
 3. ${body.tool ? "只输出 1 个处理结果" : `输出 ${count} 个角度、开头和句式明显不同的版本`}。
 4. 所选风格、输出偏好和强度必须真实体现在词汇、句长、语气、结构或格式中，不能只复述选项名称。
 5. 文本处理时原文是封闭事实集；不得新增原文没有的否定条件、资格、费用、报名预约、审核、配送、售后、时间流程或因果推断。例如“现场登记”不等于“无需提前报名”。
-6. 只输出 JSON 字符串数组，不要解释，不要 Markdown 代码块。`;
+6. 润色、改写、扩写、翻译、校对和风格转换必须保留原文数字、日期、时间、网址、邮箱和英文专名。
+7. 文本处理不得擅自添加“欢迎来、感兴趣可以、有空来坐坐、立即报名”等原文没有的行动号召。
+8. 成品不得附加“根据你提供的信息、希望对你有帮助、如有需要可以继续修改”等助手式套话。
+9. 只输出合法 JSON 对象 {"versions":["完整成品"]}，不要解释，不要 Markdown 代码块。`;
 }
 
 async function accountResponse(request, env) {
@@ -447,10 +644,20 @@ async function authRoute(request, env, pathname) {
   if (password.length < 10 || password.length > 200) return json({ error: "密码需要 10—200 位" }, 400);
 
   const adminEmail = String(env.ADMIN_EMAIL || "").trim().toLowerCase();
+  const rateKey = await authRateKey(request, email);
+  if (pathname.endsWith("/login")) {
+    const rate = await authRateStatus(env.DB, rateKey);
+    if (rate.blocked) {
+      const retrySeconds = Math.max(1, Math.ceil((rate.retryAt - Date.now()) / 1000));
+      return json({ error: "登录尝试过多，请稍后再试" }, 429, { "Retry-After": String(retrySeconds) });
+    }
+  }
   if (email === adminEmail) {
     if (!env.ADMIN_PASSWORD || !await constantTimeTextEqual(password, env.ADMIN_PASSWORD)) {
+      await recordAuthFailure(env.DB, rateKey);
       return json({ error: "站长邮箱或密码不正确" }, 401);
     }
+    await clearAuthFailures(env.DB, rateKey);
     const sessionToken = await createSessionToken(env, email, "admin");
     return json({ ok: true, role: "admin", sessionToken }, 200, {
       "Set-Cookie": `miaobi_session=${sessionToken}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${Math.floor(SESSION_MS / 1000)}`,
@@ -479,11 +686,16 @@ async function authRoute(request, env, pathname) {
 
   const credential = await env.DB.prepare("SELECT password_hash, salt FROM local_credentials WHERE email = ?")
     .bind(email).first();
-  if (!credential) return json({ error: "邮箱或密码不正确" }, 401);
-  const actual = await passwordHash(password, fromBase64Url(credential.salt));
-  if (!await constantTimeTextEqual(base64Url(actual), credential.password_hash)) {
+  if (!credential) {
+    await recordAuthFailure(env.DB, rateKey);
     return json({ error: "邮箱或密码不正确" }, 401);
   }
+  const actual = await passwordHash(password, fromBase64Url(credential.salt));
+  if (!await constantTimeTextEqual(base64Url(actual), credential.password_hash)) {
+    await recordAuthFailure(env.DB, rateKey);
+    return json({ error: "邮箱或密码不正确" }, 401);
+  }
+  await clearAuthFailures(env.DB, rateKey);
   await env.DB.prepare("UPDATE users SET last_seen_at = ? WHERE email = ?").bind(Date.now(), email).run();
   const sessionToken = await createSessionToken(env, email, "user");
   return json({ ok: true, role: "user", sessionToken }, 200, {
@@ -510,12 +722,12 @@ async function deployCheckRoute(request, env) {
       },
       body: JSON.stringify({
         model,
+        thinking: { type: "disabled" },
         messages: [
           { role: "system", content: "只回复：妙笔AI接口正常" },
           { role: "user", content: "执行一次部署连通性检查。" },
         ],
         temperature: 0,
-        thinking: { type: "disabled" },
         max_tokens: 128,
       }),
       signal: controller.signal,
@@ -537,6 +749,8 @@ async function deployCheckRoute(request, env) {
 
 async function generateRoute(request, env) {
   if (request.method !== "POST" || !sameOrigin(request)) return json({ error: "请求来源或方法不正确" }, 403);
+  const contentLength = Number(request.headers.get("content-length") || 0);
+  if (contentLength > 64 * 1024) return json({ error: "请求内容过大，请缩短后重试" }, 413);
   if (!env.DEEPSEEK_API_KEY) {
     return json({
       error: "DeepSeek 服务尚未配置；站长完成安全密钥设置后即可恢复，本次不扣次数",
@@ -547,6 +761,14 @@ async function generateRoute(request, env) {
   const topic = String(body?.topic || "").trim();
   const material = [topic, body?.details, body?.audience, body?.purpose, body?.requirements].filter(Boolean).join("\n");
   if (!topic || material.length > 12000) return json({ error: "请输入有效内容，全部素材不能超过 12,000 字" }, 400);
+  const blocked = [
+    /(?:诈骗|洗钱|套现|跑分).{0,16}(?:话术|教程|引流|推广|脚本)/i,
+    /(?:赌博|博彩|六合彩).{0,16}(?:推广|引流|招募|广告|话术)/i,
+    /(?:色情|招嫖|裸聊).{0,16}(?:推广|引流|招募|广告|话术)/i,
+    /(?:毒品|冰毒|海洛因).{0,16}(?:制作|配方|贩卖|推广|教程)/i,
+    /(?:代写|枪手).{0,12}(?:论文|作业|考试)/i,
+  ];
+  if (blocked.some(pattern => pattern.test(material))) return json({ error: "该请求不符合内容安全规则，请调整后重试" }, 400);
   const session = await readSession(request, env);
   const user = session
     ? await env.DB.prepare("SELECT plan, plan_expires_at FROM users WHERE email = ?").bind(session.email).first()
@@ -555,6 +777,12 @@ async function generateRoute(request, env) {
   const limit = member ? MEMBER_LIMIT : FREE_LIMIT;
   const inputLimit = member ? 12000 : 4000;
   if (material.length > inputLimit) return json({ error: `当前账户单次最多输入 ${inputLimit.toLocaleString()} 字` }, 400);
+  const siteLimit = Math.max(1, Math.min(100000, Number(env.AI_SITE_DAILY_LIMIT || 500) || 500));
+  const siteUsage = await env.DB.prepare("SELECT COUNT(*) total FROM generations WHERE created_at >= ? AND model LIKE 'deepseek-%'")
+    .bind(Date.now() - WINDOW_MS).first();
+  if (Number(siteUsage?.total || 0) >= siteLimit) {
+    return json({ error: "站点近 24 小时 DeepSeek 总额度已用完，请稍后再试", code: "SITE_QUOTA_EXCEEDED" }, 503);
+  }
   const key = session?.email || await visitorKey(request);
   const reservation = await reserveUsage(env.DB, key, limit);
   if (!reservation.reserved) return json({
@@ -579,6 +807,8 @@ async function generateRoute(request, env) {
       },
       body: JSON.stringify({
         model,
+        thinking: { type: "disabled" },
+        response_format: { type: "json_object" },
         messages: [
           { role: "system", content: "你是严谨的中文写作编辑。严格遵守事实边界，只输出最终成品。" },
           { role: "user", content: basePrompt },
@@ -601,11 +831,10 @@ async function generateRoute(request, env) {
   }
   const payload = await response.json().catch(() => null);
   const content = payload?.choices?.[0]?.message?.content;
-  let results = parseVersions(content, count)
-    .filter(item => unsupportedFactInferences(item, material).length === 0);
+  let results = validResults(content, count, material, body?.tool);
   let resolvedModel = payload?.model || model;
   if (results.length < count) {
-    const findings = candidateViolations(content, count, material);
+    const findings = candidateViolations(content, count, material, body?.tool);
     const retryController = new AbortController();
     const retryTimer = setTimeout(() => retryController.abort(), 38000);
     try {
@@ -617,6 +846,8 @@ async function generateRoute(request, env) {
         },
         body: JSON.stringify({
           model,
+          thinking: { type: "disabled" },
+          response_format: { type: "json_object" },
           messages: [
             { role: "system", content: "你是严谨的中文写作编辑。严格遵守事实边界，只输出最终成品。" },
             {
@@ -627,7 +858,8 @@ async function generateRoute(request, env) {
 检测到的具体问题：${findings.length ? findings.join("；") : "输出数量、格式或事实边界未通过"}。
 删除上述无依据内容；原文中的绝对日期、时间、数字、地点和专有名词保持原样。
 不得增加“无需、不用、不需要、不必、这个月、当天、更轻松、更方便、不慌不忙”等原文没有的条件、相对时间或主观结果。
-只输出最终 JSON 字符串数组，不要解释。`,
+不得增加“欢迎来、感兴趣可以、有空来坐坐、立即报名”等原文没有的行动号召，也不要附加助手式客套。
+只输出最终 JSON 对象 {"versions":["完整成品"]}，不要解释。`,
             },
           ],
           temperature: 0,
@@ -638,8 +870,7 @@ async function generateRoute(request, env) {
       if (retryResponse.ok) {
         const retryPayload = await retryResponse.json().catch(() => null);
         const retryContent = retryPayload?.choices?.[0]?.message?.content;
-        const retryResults = parseVersions(retryContent, count)
-          .filter(item => unsupportedFactInferences(item, material).length === 0);
+        const retryResults = validResults(retryContent, count, material, body?.tool);
         if (retryResults.length > results.length) {
           results = retryResults;
           resolvedModel = retryPayload?.model || resolvedModel;
@@ -651,9 +882,12 @@ async function generateRoute(request, env) {
       clearTimeout(retryTimer);
     }
   }
-  if (!results.length) {
+  if (results.length < count) {
     await releaseUsage(env.DB, key);
-    return json({ error: "DeepSeek 本次输出未通过事实与质量检查，本次不扣次数，请补充真实素材后重试", code: "QUALITY_REJECTED" }, 422);
+    return json({
+      error: `DeepSeek 本次只生成了 ${results.length} / ${count} 个通过事实与质量检查的版本，本次不扣次数；请补充真实素材后重试`,
+      code: "QUALITY_REJECTED",
+    }, 422);
   }
   try {
     await env.DB.prepare(`INSERT INTO generations
@@ -702,21 +936,32 @@ async function adminOverview(request, env) {
   const admin = await requireAdmin(request, env);
   if (!admin) return json({ error: "请先以站长身份登录" }, 401);
   const now = Date.now();
-  const [users, activeMembers, generations, usersList, orders, audit] = await Promise.all([
+  const [users, activeMembers, generations, tokens, revenue, usersList, orders, audit] = await Promise.all([
     env.DB.prepare("SELECT COUNT(*) total FROM users").first(),
     env.DB.prepare("SELECT COUNT(*) total FROM users WHERE plan != 'free' AND plan_expires_at > ?").bind(now).first(),
     env.DB.prepare("SELECT COUNT(*) total FROM generations WHERE created_at >= ?").bind(now - WINDOW_MS).first(),
+    env.DB.prepare("SELECT COALESCE(SUM(prompt_tokens), 0) prompt_tokens, COALESCE(SUM(completion_tokens), 0) completion_tokens FROM generations WHERE created_at >= ?").bind(now - WINDOW_MS).first(),
+    env.DB.prepare("SELECT COALESCE(SUM(amount_fen), 0) total_fen FROM orders WHERE status = 'paid'").first(),
     env.DB.prepare("SELECT email, display_name, plan, plan_expires_at, last_seen_at FROM users ORDER BY last_seen_at DESC LIMIT 100").all(),
     env.DB.prepare("SELECT id, user_email, product, amount_fen, status, provider_trade_no, created_at, paid_at FROM orders ORDER BY created_at DESC LIMIT 50").all(),
     env.DB.prepare("SELECT actor_email, action, target, detail, created_at FROM admin_audit ORDER BY created_at DESC LIMIT 30").all(),
   ]);
+  const userTotal = Number(users?.total || 0);
+  const memberTotal = Number(activeMembers?.total || 0);
+  const rollingGenerations = Number(generations?.total || 0);
+  const siteLimit = Math.max(1, Math.min(100000, Number(env.AI_SITE_DAILY_LIMIT || 500) || 500));
   return json({
     release: VERSION,
     currentUser: admin,
     cards: {
-      users: Number(users?.total || 0),
-      activeMembers: Number(activeMembers?.total || 0),
-      rollingGenerations: Number(generations?.total || 0),
+      users: userTotal,
+      activeMembers: memberTotal,
+      rollingGenerations,
+      siteRemaining: Math.max(0, siteLimit - rollingGenerations),
+      promptTokens: Number(tokens?.prompt_tokens || 0),
+      completionTokens: Number(tokens?.completion_tokens || 0),
+      revenueFen: Number(revenue?.total_fen || 0),
+      memberConversion: userTotal ? Number(((memberTotal / userTotal) * 100).toFixed(1)) : 0,
     },
     systems: {
       deepSeekConfigured: Boolean(env.DEEPSEEK_API_KEY),
@@ -725,6 +970,7 @@ async function adminOverview(request, env) {
       rollingWindowHours: 24,
       freeLimit: FREE_LIMIT,
       memberLimit: MEMBER_LIMIT,
+      siteLimit,
     },
     users: usersList.results,
     orders: orders.results,
@@ -740,6 +986,24 @@ async function adminMembers(request, env) {
   const email = String(body?.email || "").trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "请输入正确的用户邮箱" }, 400);
   const now = Date.now();
+
+  if (body?.action === "refund") {
+    const orderId = String(body?.orderId || "");
+    if (!/^manual:[a-zA-Z0-9-]{8,80}$/.test(orderId)) return json({ error: "退款订单标识无效" }, 400);
+    const order = await env.DB.prepare("SELECT user_email, product, status FROM orders WHERE id = ?").bind(orderId).first();
+    if (!order || order.user_email !== email) return json({ error: "没有找到与该用户匹配的订单" }, 404);
+    if (order.status === "refunded") return json({ ok: true, message: "该笔订单已登记为退款，无需重复操作" });
+    if (order.status !== "paid") return json({ error: "只有已核对到账的订单可以登记退款" }, 409);
+    await env.DB.batch([
+      env.DB.prepare("UPDATE orders SET status = 'refunded' WHERE id = ? AND status = 'paid'").bind(orderId),
+      env.DB.prepare(`INSERT INTO admin_audit (id, actor_email, action, target, detail, created_at)
+        VALUES (?, ?, 'order_refund_recorded', ?, ?, ?)`)
+        .bind(crypto.randomUUID(), admin.email, email, JSON.stringify({ orderId }), now),
+    ]);
+    const readback = await env.DB.prepare("SELECT user_email, product, status FROM orders WHERE id = ?").bind(orderId).first();
+    if (!readback || readback.status !== "refunded") return json({ error: "退款登记后数据库读回不一致，未冒充成功" }, 409);
+    return json({ ok: true, message: `已登记 ${orderId} 完成原路退款；会员权益如需撤销请另行操作` });
+  }
 
   if (body?.action === "revoke") {
     const before = await env.DB.prepare("SELECT email FROM users WHERE email = ?").bind(email).first();
@@ -839,6 +1103,10 @@ async function workerFetch(request, env) {
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
   headers.set("X-Frame-Options", "DENY");
+  headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  headers.set("Cross-Origin-Resource-Policy", "same-origin");
+  headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  headers.set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 

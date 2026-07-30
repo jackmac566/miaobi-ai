@@ -17,6 +17,33 @@ class MemoryStatement {
 
   async first() {
     const [first] = this.args;
+    if (/^SELECT COUNT\(\*\)(?: AS)? total FROM generations WHERE created_at >=/.test(this.sql)) {
+      return { total: this.db.generations.length };
+    }
+    if (this.sql.startsWith("SELECT COUNT(*) total FROM users WHERE plan != 'free'")) {
+      const now = Number(this.args[0] || Date.now());
+      return { total: [...this.db.users.values()].filter(user => user.plan !== "free" && Number(user.plan_expires_at || 0) > now).length };
+    }
+    if (this.sql === "SELECT COUNT(*) total FROM users") return { total: this.db.users.size };
+    if (this.sql.startsWith("SELECT COUNT(*) total FROM generations WHERE created_at >=")) {
+      return { total: this.db.generations.length };
+    }
+    if (this.sql.startsWith("SELECT COALESCE(SUM(prompt_tokens), 0) prompt_tokens")) {
+      return {
+        prompt_tokens: this.db.generations.reduce((total, item) => total + Number(item.prompt_tokens || 0), 0),
+        completion_tokens: this.db.generations.reduce((total, item) => total + Number(item.completion_tokens || 0), 0),
+      };
+    }
+    if (this.sql.startsWith("SELECT COALESCE(SUM(amount_fen), 0) total_fen FROM orders")) {
+      return {
+        total_fen: [...this.db.orders.values()]
+          .filter(order => order.status === "paid")
+          .reduce((total, order) => total + Number(order.amount_fen || 0), 0),
+      };
+    }
+    if (this.sql.startsWith("SELECT failures, window_started_at, blocked_until FROM auth_rate_limits")) {
+      return this.db.authRates.get(first) || null;
+    }
     if (this.sql.startsWith("SELECT used, window_started_at FROM usage_windows")) return this.db.usage.get(first) || null;
     if (this.sql.startsWith("UPDATE usage_windows SET used = used + 1")) {
       const [now, key, threshold, limit] = this.args;
@@ -60,6 +87,9 @@ class MemoryStatement {
   }
 
   async all() {
+    if (this.sql.startsWith("SELECT email, display_name, plan")) return { results: [...this.db.users.values()] };
+    if (this.sql.startsWith("SELECT id, user_email, product")) return { results: [...this.db.orders.values()] };
+    if (this.sql.startsWith("SELECT actor_email, action, target")) return { results: this.db.audit };
     return { results: [] };
   }
 
@@ -106,7 +136,31 @@ class MemoryStatement {
       });
       return { success: true };
     }
-    if (this.sql.startsWith("INSERT INTO admin_audit")) return { success: true };
+    if (this.sql.startsWith("INSERT INTO admin_audit")) {
+      this.db.audit.push({
+        id: a[0],
+        actor_email: a[1],
+        action: a[2],
+        target: a[3],
+        detail: a[4],
+        created_at: a[5],
+      });
+      return { success: true };
+    }
+    if (this.sql.startsWith("INSERT INTO auth_rate_limits")) {
+      const [key, failures, windowStartedAt, blockedUntil, updatedAt] = a;
+      this.db.authRates.set(key, {
+        failures,
+        window_started_at: windowStartedAt,
+        blocked_until: blockedUntil,
+        updated_at: updatedAt,
+      });
+      return { success: true };
+    }
+    if (this.sql.startsWith("DELETE FROM auth_rate_limits")) {
+      this.db.authRates.delete(a[0]);
+      return { success: true };
+    }
     if (this.sql.startsWith("INSERT INTO generations")) {
       this.db.generations.push({
         id: a[0],
@@ -116,6 +170,9 @@ class MemoryStatement {
         style: a[4],
         result_json: a[5],
         model: a[6],
+        prompt_tokens: a[7],
+        completion_tokens: a[8],
+        created_at: a[9],
       });
       return { success: true };
     }
@@ -130,6 +187,11 @@ class MemoryStatement {
       if (current) this.db.users.set(a[0], { ...current, plan: "free", plan_expires_at: null });
       return { success: true };
     }
+    if (this.sql.startsWith("UPDATE orders SET status = 'refunded'")) {
+      const order = this.db.orders.get(a[0]);
+      if (order?.status === "paid") this.db.orders.set(a[0], { ...order, status: "refunded" });
+      return { success: true };
+    }
     if (this.sql.startsWith("UPDATE users SET last_seen_at")) return { success: true };
     throw new Error(`Unhandled run(): ${this.sql}`);
   }
@@ -142,6 +204,8 @@ class MemoryD1 {
     this.usage = new Map();
     this.orders = new Map();
     this.generations = [];
+    this.authRates = new Map();
+    this.audit = [];
   }
 
   prepare(sql) {
@@ -220,6 +284,14 @@ test("Cloudflare login and membership grant form a real database-backed loop", a
   assert.equal(accountPayload.isMember, true);
   assert.equal(accountPayload.remaining, 100);
 
+  const refunded = await worker.fetch(post("/api/admin/members", {
+    action: "refund",
+    email: "member@example.com",
+    orderId: grantPayload.orderId,
+  }, adminCookie), env);
+  assert.equal(refunded.status, 200);
+  assert.equal(DB.orders.get(grantPayload.orderId).status, "refunded");
+
   const revoked = await worker.fetch(post("/api/admin/members", {
     action: "revoke",
     email: "member@example.com",
@@ -233,6 +305,67 @@ test("Cloudflare login and membership grant form a real database-backed loop", a
   const afterPayload = await afterRevoke.json();
   assert.equal(afterPayload.isMember, false);
   assert.equal(afterPayload.remaining, 10);
+});
+
+test("domestic operations overview reports cost, quota, revenue and conversion from D1", async () => {
+  const DB = new MemoryD1();
+  const now = Date.now();
+  DB.users.set("member@example.com", {
+    email: "member@example.com",
+    display_name: "member",
+    plan: "monthly",
+    plan_expires_at: now + 86_400_000,
+    last_seen_at: now,
+  });
+  DB.users.set("free@example.com", {
+    email: "free@example.com",
+    display_name: "free",
+    plan: "free",
+    plan_expires_at: null,
+    last_seen_at: now,
+  });
+  DB.generations.push({ model: "deepseek-v4-flash", prompt_tokens: 120, completion_tokens: 40, created_at: now });
+  DB.orders.set("paid-1", {
+    id: "paid-1",
+    user_email: "member@example.com",
+    product: "monthly",
+    amount_fen: 1990,
+    status: "paid",
+    provider_trade_no: "manual_wechat",
+    created_at: now,
+    paid_at: now,
+  });
+  const env = {
+    DB,
+    ASSETS: { fetch: async () => new Response("asset") },
+    ADMIN_EMAIL: "owner@example.com",
+    ADMIN_PASSWORD: "LocalTestPass123",
+    SESSION_SECRET: "integration-session-secret",
+    DEEPSEEK_API_KEY: "test-server-side-key",
+    DEEPSEEK_MODEL: "deepseek-v4-flash",
+    AI_SITE_DAILY_LIMIT: "500",
+  };
+
+  const adminLogin = await worker.fetch(post("/api/auth/login", {
+    email: "owner@example.com",
+    password: "LocalTestPass123",
+  }), env);
+  const overview = await worker.fetch(new Request("https://miaobi.example/api/admin/overview", {
+    headers: { Cookie: cookieFrom(adminLogin) },
+  }), env);
+  assert.equal(overview.status, 200);
+  const payload = await overview.json();
+  assert.deepEqual(payload.cards, {
+    users: 2,
+    activeMembers: 1,
+    rollingGenerations: 1,
+    siteRemaining: 499,
+    promptTokens: 120,
+    completionTokens: 40,
+    revenueFen: 1990,
+    memberConversion: 50,
+  });
+  assert.equal(payload.systems.siteLimit, 500);
 });
 
 test("protected deployment check requires its secret and proves a non-empty DeepSeek response", async t => {
@@ -292,6 +425,8 @@ test("domestic generation sends and reports the exact selected writing controls"
     assert.equal(init.headers.Authorization, "Bearer test-server-side-key");
     const upstream = JSON.parse(init.body);
     assert.equal(upstream.temperature, 0.15);
+    assert.deepEqual(upstream.thinking, { type: "disabled" });
+    assert.deepEqual(upstream.response_format, { type: "json_object" });
     const prompt = upstream.messages[1].content;
     assert.match(prompt, /风格：高级感/);
     assert.match(prompt, /风格执行规则：用词准确克制/);
@@ -414,4 +549,32 @@ test("domestic generation uses exact quality findings to recover a faithful rewr
   ]);
   assert.equal(DB.generations.length, 1);
   assert.equal([...DB.usage.values()][0].used, 1);
+});
+
+test("domestic admin login is rate limited after repeated failures", async () => {
+  const DB = new MemoryD1();
+  const env = {
+    DB,
+    ASSETS: { fetch: async () => new Response("asset") },
+    ADMIN_EMAIL: "owner@example.com",
+    ADMIN_PASSWORD: "LocalTestPass123",
+    SESSION_SECRET: "integration-session-secret",
+    DEEPSEEK_API_KEY: "test-server-side-key",
+    DEEPSEEK_MODEL: "deepseek-v4-flash",
+  };
+
+  for (let attempt = 1; attempt <= 8; attempt += 1) {
+    const response = await worker.fetch(post("/api/auth/login", {
+      email: "owner@example.com",
+      password: "WrongPassword123",
+    }), env);
+    assert.equal(response.status, 401, `attempt ${attempt}`);
+  }
+
+  const blocked = await worker.fetch(post("/api/auth/login", {
+    email: "owner@example.com",
+    password: "LocalTestPass123",
+  }), env);
+  assert.equal(blocked.status, 429);
+  assert.match((await blocked.json()).error, /登录尝试过多/);
 });

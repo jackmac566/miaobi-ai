@@ -65,8 +65,15 @@ export async function fetchAIChat(options: {
   messages: AIChatMessage[];
   maxTokens: number;
   temperature?: number;
+  jsonMode?: boolean;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }) {
   const provider = getAIProvider(options.provider);
+  const timeoutSignal = AbortSignal.timeout(options.timeoutMs || 24_000);
+  const signal = options.signal
+    ? AbortSignal.any([options.signal, timeoutSignal])
+    : timeoutSignal;
   return fetch(provider.endpoint, {
     method: "POST",
     headers: providerHeaders(options.apiKey),
@@ -74,10 +81,12 @@ export async function fetchAIChat(options: {
       model: options.model,
       messages: options.messages,
       stream: false,
+      thinking: { type: "disabled" },
       max_tokens: options.maxTokens,
+      ...(options.jsonMode ? { response_format: { type: "json_object" } } : {}),
       ...(typeof options.temperature === "number" ? { temperature: options.temperature } : {}),
     }),
-    signal: AbortSignal.timeout(30_000),
+    signal,
   });
 }
 

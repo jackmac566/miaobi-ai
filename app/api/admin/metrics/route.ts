@@ -39,6 +39,9 @@ export async function GET(request: Request) {
     todayLegacy,
     refundedOrders,
     delegatedAdmins,
+    rollingDeepSeek,
+    rollingTokens,
+    totalRevenue,
     popular,
     recent,
     audit,
@@ -55,6 +58,13 @@ export async function GET(request: Request) {
     config.DB.prepare("SELECT COUNT(*) total FROM generations WHERE created_at >= ? AND model NOT LIKE 'deepseek-%'").bind(today).first<{ total: number }>(),
     config.DB.prepare("SELECT COUNT(*) total FROM orders WHERE status = 'refunded'").first<{ total: number }>(),
     config.DB.prepare("SELECT COUNT(*) total FROM site_admins WHERE active = 1").first<{ total: number }>(),
+    config.DB.prepare("SELECT COUNT(*) total FROM generations WHERE created_at >= ? AND model LIKE 'deepseek-%'")
+      .bind(now - 86_400_000).first<{ total: number }>(),
+    config.DB.prepare(`SELECT COALESCE(SUM(prompt_tokens), 0) prompt, COALESCE(SUM(completion_tokens), 0) completion
+      FROM generations WHERE created_at >= ? AND model LIKE 'deepseek-%'`)
+      .bind(now - 86_400_000).first<{ prompt: number; completion: number }>(),
+    config.DB.prepare("SELECT COALESCE(SUM(amount_fen), 0) total FROM orders WHERE status = 'paid'")
+      .first<{ total: number }>(),
     config.DB.prepare("SELECT scene, COUNT(*) total FROM generations WHERE created_at >= ? GROUP BY scene ORDER BY total DESC LIMIT 5").bind(week).all(),
     config.DB.prepare("SELECT scene, created_at FROM generations ORDER BY created_at DESC LIMIT 8").all(),
     config.DB.prepare("SELECT actor_email, action, target, created_at FROM admin_audit ORDER BY created_at DESC LIMIT 10")
@@ -63,6 +73,9 @@ export async function GET(request: Request) {
   const aiOperational = Boolean(aiSettings.apiKey && verification?.ok);
   const secureStorageReady = Boolean(config.CONFIG_ENCRYPTION_KEY);
   const rootAdminReady = Boolean(config.ADMIN_EMAIL?.trim());
+  const siteLimit = Math.max(1, Math.min(100_000, Number(config.AI_SITE_DAILY_LIMIT || 500) || 500));
+  const rollingUsage = Number(rollingDeepSeek?.total || 0);
+  const siteRemaining = Math.max(0, siteLimit - rollingUsage);
   const alerts: Array<{ level: "ok" | "info" | "warning"; title: string; detail: string }> = [];
   if (!secureStorageReady) alerts.push({
     level: "warning",
@@ -80,6 +93,11 @@ export async function GET(request: Request) {
     detail: aiSettings.apiKey
       ? "DeepSeek 密钥已保存，但最近一次真实请求没有通过；访客会收到明确错误且不扣次数。"
       : "尚未配置 DeepSeek API Key；访客生成会暂停，不会用低质量备用文本冒充。",
+  });
+  if (siteRemaining <= Math.max(5, Math.ceil(siteLimit * 0.2))) alerts.push({
+    level: siteRemaining === 0 ? "warning" : "info",
+    title: siteRemaining === 0 ? "站点 DeepSeek 总额度已用完" : "站点 DeepSeek 总额度接近上限",
+    detail: `近 24 小时已使用 ${rollingUsage} / ${siteLimit} 次，剩余 ${siteRemaining} 次。`,
   });
   alerts.push({
     level: "info",
@@ -111,6 +129,15 @@ export async function GET(request: Request) {
       todayLegacy: Number(todayLegacy?.total || 0),
       refundedOrders: Number(refundedOrders?.total || 0),
       activeAdmins: Number(delegatedAdmins?.total || 0) + (rootAdminReady ? 1 : 0),
+      rollingDeepSeek: rollingUsage,
+      siteLimit,
+      siteRemaining,
+      rollingPromptTokens: Number(rollingTokens?.prompt || 0),
+      rollingCompletionTokens: Number(rollingTokens?.completion || 0),
+      totalRevenueFen: Number(totalRevenue?.total || 0),
+      memberConversionRate: Number(totalUsers?.total || 0)
+        ? Number(((Number(activeMembers?.total || 0) / Number(totalUsers?.total || 1)) * 100).toFixed(1))
+        : 0,
     },
     popular: popular.results,
     recent: recent.results,

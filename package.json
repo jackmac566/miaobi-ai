@@ -1,8 +1,6 @@
 {
-  "name": "miaobi-ai",
-  "version": "1.4.5",
-  "description": "开源中文 AI 文案助手：DeepSeek、Cloudflare Pages、D1、会员后台与微信小程序",
-  "license": "MIT",
+  "name": "ai-copywriting-assistant",
+  "version": "1.5.0",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -27,6 +25,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
+    "@cloudflare/workers-types": "^4.20260702.1",
     "@tailwindcss/postcss": "4.2.1",
     "@types/node": "22.19.19",
     "@types/react": "19.2.14",
@@ -44,5 +43,5 @@
     "wrangler": "4.92.0"
   },
   "type": "module",
-  "displayName": "AI \u6587\u6848\u5168\u80fd\u52a9\u624b"
+  "displayName": "AI 文案全能助手"
 }
