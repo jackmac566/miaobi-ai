@@ -22,4 +22,6 @@ jobs:
       - run: npm run lint
       - run: npx tsc --noEmit
       - run: npm test
+        env:
+          NODE_OPTIONS: --experimental-strip-types
       - run: npm run build:cloudflare
