@@ -1,0 +1,3 @@
+                    React.createElement("option", { value: "glm" }, "ChatGPT 通道"),
+=====
+                    React.createElement("option", { value: "deepseek" }, "全部厂商"),

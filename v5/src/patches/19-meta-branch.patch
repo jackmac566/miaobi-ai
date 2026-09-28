@@ -1,0 +1,5 @@
+            if (e.type === 'meta')
+                currentMeta = { ...currentMeta, apiModel: e.model, provider:e.provider, requestId:e.requestId, plan:e.plan, effort:e.effort||currentMeta.effort, executionMode: e.executionMode||currentMeta.executionMode };
+=====
+            if (e.type === 'meta')
+                currentMeta = { ...currentMeta, apiModel: e.model, provider:e.provider, vendor:e.vendor, task:e.task, requestId:e.requestId, plan:e.plan, effort:e.effort||currentMeta.effort, executionMode: e.executionMode||currentMeta.executionMode };

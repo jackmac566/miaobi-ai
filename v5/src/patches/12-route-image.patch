@@ -1,0 +1,22 @@
+        try {
+            await (0, chat_api_1.chatStream)(prepared.body, controller.signal, event);
+            if (request.current?.id !== token)
+                return;
+            if (!ended || !text.trim())
+                throw new api_1.ApiError('服务没有返回完整的可读回复。', 502, 'EMPTY_RESPONSE');
+        }
+=====
+        try {
+            if (settings.imageMode)
+                await (0, chat_api_1.imageStream)({ prompt: prepared.body.messages.at(-1).content, imageModel: connection.readDirectConfig().imageModel, requestId: token, size: '1024x1024' }, controller.signal, event);
+            else
+                await (0, chat_api_1.chatStream)(prepared.body, controller.signal, event);
+            if (request.current?.id !== token)
+                return;
+            if (settings.imageMode) {
+                if (!currentMeta.images || !currentMeta.images.length)
+                    throw new api_1.ApiError('没有收到图片。', 502, 'EMPTY_IMAGE');
+            }
+            else if (!ended || !text.trim())
+                throw new api_1.ApiError('服务没有返回完整的可读回复。', 502, 'EMPTY_RESPONSE');
+        }

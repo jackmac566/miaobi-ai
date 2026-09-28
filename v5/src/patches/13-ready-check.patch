@@ -1,0 +1,5 @@
+        if(!connection.readDirectConfig().glm.configured){setError('请先填写智谱 API Key；填写后会自动保存。');openModal('api');return;}
+=====
+        const ready=connection.modelReady(active.settings.model);
+        if(!ready.ok){setError(ready.reason+' 填写后会自动保存。');openModal('api');return;}
+        if((active.settings.imageMode||active.settings.webSearch)&&!connection.searchReady()){setError((active.settings.imageMode?'画图':'联网检索')+'由智谱提供，请先填写智谱 API Key，或关掉该开关。');openModal('api');return;}

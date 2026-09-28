@@ -1,0 +1,19 @@
+            else if(e.type==='reasoning') currentMeta={...currentMeta,reasoningObserved:e.observed===true};
+            else if (e.type === 'status' && e.label) {
+                if (!currentMeta.steps.some(s => s.id === e.id))
+                    currentMeta = { ...currentMeta, steps: [...currentMeta.steps, { id: e.id || (0, types_1.uid)(), label: e.label, at: Date.now() }] };
+            }
+            else if (e.type === 'summary.delta' && settings.showSummary) {
+                summary += e.delta || '';
+                currentMeta = { ...currentMeta, summary };
+            }
+=====
+            else if(e.type==='reasoning.start') currentMeta={...currentMeta,reasoningObserved:true,reasoningStarted:currentMeta.reasoningStarted||Date.now()};
+            else if(e.type==='reasoning.delta'){reasoning+=(e.delta||'');currentMeta={...currentMeta,reasoningObserved:true,reasoningText:reasoning};}
+            else if(e.type==='reasoning.done') currentMeta={...currentMeta,reasoningFinished:Date.now()};
+            else if(e.type==='search.results'){sources=e.results||[];currentMeta={...currentMeta,sources};}
+            else if(e.type==='image') currentMeta={...currentMeta,images:e.images||[],imageModel:e.model,imagePrompt:e.prompt};
+            else if (e.type === 'status' && e.label) {
+                if (!currentMeta.steps.some(s => s.id === e.id))
+                    currentMeta = { ...currentMeta, steps: [...currentMeta.steps, { id: e.id || (0, types_1.uid)(), label: e.label, at: Date.now() }] };
+            }

@@ -1,0 +1,3 @@
+return { model, effort: (0, models_1.normalizeEffort)(model, v.effort), modelEfforts: { gpt6: (0, models_1.normalizeEffort)('gpt6', v.modelEfforts?.gpt6), claude55: (0, models_1.normalizeEffort)('claude55', v.modelEfforts?.claude55) }, intent:
+=====
+return { model, effort: (0, models_1.normalizeEffort)(model, v.effort), modelEfforts: (0, models_1.safeModelEfforts)(v.modelEfforts), webSearch: v.webSearch === true, imageMode: v.imageMode === true, showPanel: v.showPanel !== false, intent:

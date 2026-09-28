@@ -1,0 +1,3 @@
+                            (r.provider === 'glm' ? '智谱 GLM' : r.provider === 'qwen' ? '历史 Claude 通道' : r.provider),
+=====
+                            (r.provider === 'deepseek' ? 'DeepSeek' : r.provider === 'zhipu' ? '智谱 BigModel' : r.provider),

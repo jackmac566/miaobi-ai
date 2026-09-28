@@ -1,0 +1,3 @@
+            const message = timedOut ? '等待超过 5 分钟，已请求中止。已收到的内容保留，实际用量以服务商记录为准。' : e instanceof Error ? e.message : '聊天服务暂时不可用。';
+=====
+            const message = timedOut ? '等待超过 2 分钟，已请求中止。已收到的内容保留，实际用量以服务商记录为准。可以换更快的模型（例如 DeepSeek V4 Flash 且关闭思考）重试。' : e instanceof Error ? e.message : '聊天服务暂时不可用。';

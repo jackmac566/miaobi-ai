@@ -1,0 +1,7 @@
+            else if (e.type === 'done') {
+                ended = true;
+                currentMeta={...currentMeta,usage:e.usage??currentMeta.usage,cost:e.cost??currentMeta.cost,reasoningObserved:e.reasoningObserved===true};
+=====
+            else if (e.type === 'done') {
+                ended = true;
+                currentMeta={...currentMeta,usage:e.usage??currentMeta.usage,cost:e.cost??currentMeta.cost,reasoningObserved:e.reasoningObserved===true,latency:e.latency??currentMeta.latency};

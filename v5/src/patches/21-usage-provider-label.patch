@@ -1,0 +1,3 @@
+                React.createElement("span", null, p === 'glm' ? '智谱 GLM' : '历史 Claude 通道'),
+=====
+                React.createElement("span", null, p === 'deepseek' ? 'DeepSeek' : p === 'zhipu' ? '智谱 BigModel' : p),

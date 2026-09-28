@@ -1,0 +1,3 @@
+reasoningObserved:m.reasoningObserved===true,
+=====
+reasoningObserved:m.reasoningObserved===true, task:isString(m.task)?m.task.slice(0,20):undefined, latency:m.latency&&typeof m.latency==='object'?{firstTokenMs:Number(m.latency.firstTokenMs)||null,totalMs:Number(m.latency.totalMs)||null}:undefined, sources:Array.isArray(m.sources)?m.sources.filter(s=>s&&isString(s.url)).slice(0,12).map(s=>({url:s.url.slice(0,600),title:String(s.title||'').slice(0,200),site:String(s.site||'').slice(0,100)})):undefined, images:Array.isArray(m.images)?m.images.filter(i=>i&&isString(i.url)).slice(0,4).map(i=>({url:i.url.slice(0,2000)})):undefined, imageModel:isString(m.imageModel)?m.imageModel.slice(0,60):undefined, imagePrompt:isString(m.imagePrompt)?m.imagePrompt.slice(0,500):undefined,
