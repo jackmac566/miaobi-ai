@@ -38,8 +38,19 @@
 .mb-answer-sources span{font-size:11px;color:var(--mb-muted);flex:none}
 .mb-message-images{margin-top:14px;display:flex;flex-direction:column;gap:12px}
 .mb-message-images figure{margin:0;border:1px solid var(--mb-line);border-radius:12px;overflow:hidden;background:var(--mb-panel)}
-.mb-message-images img{display:block;width:100%;max-height:520px;object-fit:contain;background:#1a1a1a}
+.mb-message-images img{display:block;width:100%;max-height:520px;object-fit:contain;background:var(--mb-raised)}
 .mb-message-images figcaption{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:11px;color:var(--mb-muted)}
 .mb-message-images figcaption a{margin-left:auto;color:#d3a080;text-decoration:none}
-.mb-icon-btn.is-active{color:#d3a080}
+.mb-icon-btn.is-active{color:var(--mb-accent)}
+/* ===== 合规与可访问性（v5.1）===== */
+.mb-ai-mark{font-size:10px;color:var(--mb-muted);letter-spacing:.02em}
+.mb-ai-badge{margin-left:4px;padding:1px 6px;border:1px solid var(--mb-line);border-radius:5px;font-size:9px;color:var(--mb-muted);font-style:normal;white-space:nowrap}
+.mb-legal-block{margin-top:14px;padding:12px 14px;border:1px solid var(--mb-line);border-radius:10px;background:var(--mb-raised)}
+.mb-legal-block>b{display:block;font-size:12px;margin-bottom:7px}
+.mb-legal-block ul{margin:0;padding-left:16px;display:flex;flex-direction:column;gap:6px}
+.mb-legal-block li{font-size:11px;line-height:1.75;color:var(--mb-muted)}
+.mb-legal-block strong{color:var(--mb-sub);font-weight:500}
+.mb-scene-why{margin-top:10px;padding:10px 12px;border:1px dashed var(--mb-line);border-radius:10px}
+.mb-scene-why b{font-size:11px;color:var(--mb-sub)}
+.mb-scene-why p{margin:5px 0 0;font-size:11px;line-height:1.8;color:var(--mb-muted)}
 </style></head><body>

@@ -61,7 +61,31 @@ NEW_CSS = """/* ===== 妙笔 v5 新增样式 ===== */
 .mb-message-images figcaption{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:11px;color:var(--mb-muted)}
 .mb-message-images figcaption a{margin-left:auto;color:#d3a080;text-decoration:none}
 .mb-icon-btn.is-active{color:#d3a080}
+/* ===== 合规与可访问性（v5.1）===== */
+.mb-ai-mark{font-size:10px;color:var(--mb-muted);letter-spacing:.02em}
+.mb-ai-badge{margin-left:4px;padding:1px 6px;border:1px solid var(--mb-line);border-radius:5px;font-size:9px;color:var(--mb-muted);font-style:normal;white-space:nowrap}
+.mb-legal-block{margin-top:14px;padding:12px 14px;border:1px solid var(--mb-line);border-radius:10px;background:var(--mb-raised)}
+.mb-legal-block>b{display:block;font-size:12px;margin-bottom:7px}
+.mb-legal-block ul{margin:0;padding-left:16px;display:flex;flex-direction:column;gap:6px}
+.mb-legal-block li{font-size:11px;line-height:1.75;color:var(--mb-muted)}
+.mb-legal-block strong{color:var(--mb-sub);font-weight:500}
+.mb-scene-why{margin-top:10px;padding:10px 12px;border:1px dashed var(--mb-line);border-radius:10px}
+.mb-scene-why b{font-size:11px;color:var(--mb-sub)}
+.mb-scene-why p{margin:5px 0 0;font-size:11px;line-height:1.8;color:var(--mb-muted)}
 """
+# 上面 NEW_CSS 里链接色必须走变量，亮色主题下硬编码 #d3a080 只有 2.31:1（不合格）
+NEW_CSS = NEW_CSS.replace('.mb-icon-btn.is-active{color:#d3a080}', '.mb-icon-btn.is-active{color:var(--mb-accent)}')
+NEW_CSS = NEW_CSS.replace('.mb-message-images img{display:block;width:100%;max-height:520px;object-fit:contain;background:#1a1a1a}',
+                          '.mb-message-images img{display:block;width:100%;max-height:520px;object-fit:contain;background:var(--mb-raised)}')
+
+CSP = ('<meta http-equiv="Content-Security-Policy" content="'
+       "default-src 'none'; "
+       "script-src 'unsafe-inline'; "
+       "style-src 'unsafe-inline'; "
+       "img-src https: data: blob:; "
+       "connect-src https://api.deepseek.com https://open.bigmodel.cn; "
+       "base-uri 'none'; form-action 'none'; object-src 'none'; frame-src 'none';"
+       '">')
 
 PATCHES = [
     # ---- 头部：标题与描述改成真实信息 ----
@@ -185,6 +209,92 @@ PATCHES = [
     ("24-message-label",
      L(1370),
      "                                React.createElement(\"b\", null, (0, models_1.labelForMeta)((0, types_1.replyMeta)(m) || m.requestSettings || types_1.DEFAULT_SETTINGS)),"),
+
+    # ================= v5.1：安全 / 可访问性 / 合规 =================
+
+    # ---- 安全：加 CSP，把出网请求钉死在那两家厂商 ----
+    ("03-csp",
+     '<meta name="color-scheme" content="dark light">',
+     '<meta name="color-scheme" content="dark light">' + CSP),
+
+    # ---- 可访问性：最淡一级文字在暗色下只有 2.82:1，不合格（大量 9–10px 小字在用） ----
+    ("04a-dark-contrast",
+     "--mb-muted:#969696;--mb-faint:#6f6f6f;",
+     "--mb-muted:#a6a6a6;--mb-faint:#949494;"),
+    ("04b-light-contrast",
+     "--mb-muted:#6c6c68;--mb-faint:#92928b;",
+     "--mb-muted:#6c6c68;--mb-faint:#76766f;"),
+
+    # ---- 真 bug：非法 5 位 hex，整条声明被浏览器丢弃，侧边栏分隔线从来没显示过 ----
+    ("05-sidebar-border",
+     "border-right:1px solid #fff02;",
+     "border-right:1px solid var(--mb-line);"),
+
+    # ---- 安全：Markdown 链接加协议白名单（模型给的 URL 原先原样进 href） ----
+    ("06a-markdown-href",
+     '            parts.push(link ? React.createElement("a", { key: m.index, href: link[2], rel: "noopener noreferrer", target: "_blank" }, link[1]) : t);',
+     '            parts.push(link ? React.createElement("a", { key: m.index, href: safeHref(link[2]), rel: "noopener noreferrer", target: "_blank" }, link[1]) : t);'),
+    ("06b-markdown-helper",
+     "function Markdown({ text, onCopy }) {",
+     "/** 只允许 http/https：模型（或检索结果）给出的链接不能是 javascript: / data: 等协议。 */\n"
+     "function safeHref(u) {\n"
+     "    const s = String(u == null ? '' : u).trim();\n"
+     "    return /^https?:\\/\\//i.test(s) ? s : '#';\n"
+     "}\n"
+     "function Markdown({ text, onCopy }) {"),
+
+    # ---- 场景弹层与文本工具弹层原本重复显示 9 个通用处理场景 ----
+    ("07-catalog-filter",
+     L(1185),
+     "    const catalogItems = catalog_1.SCENES.filter(s => (modal === 'tools' ? !!s.tool : !s.tool) && (group === '全部' || s.group === group) && (!query || `${s.name}${s.desc}${s.group}`.toLowerCase().includes(query.toLowerCase())));"),
+    ("08-groups-for",
+     "catalog_1.GROUPS.map(g =>",
+     "catalog_1.groupsFor(modal).map(g =>"),
+
+    # ---- 合规：首屏标注 AI 生成（只改这一行，避免重发上文导致括号错配） ----
+    ("09-welcome-footer",
+     L(1343),
+     "                            React.createElement(Icon_1.default, { name: \"next\", size: 12 })),\n"
+     "                        React.createElement(\"i\", null),\n"
+     "                        React.createElement(\"span\", { className: \"mb-ai-mark\" }, \"内容由 AI 生成 · 请核对后使用\")))) : React.createElement(React.Fragment, null,"),
+
+    # ---- 合规：每条回复标注 AI 生成（不是演示稿时） ----
+    ("25-assistant-ai-badge",
+     L(1371),
+     "                                m.demo ? React.createElement(\"small\", { className: \"mb-ai-badge\" }, '演示 · 非 AI 生成') : React.createElement(\"small\", { className: \"mb-ai-badge\" }, 'AI 生成'),"),
+
+    # ---- 合规与隐私说明（放在工作空间设置里） ----
+    ("26-settings-compliance",
+     L(1573),
+     L(1573) + "\n"
+     "            React.createElement('div',{className:'mb-setting-line'},React.createElement('div',null,React.createElement('b',null,'AI 生成内容'),React.createElement('small',null,'所有回复均由 AI 模型生成，可能出错、过时或不完整，请核对后使用。'))),\n"
+     "            React.createElement(\"div\", { className: \"mb-legal-block\" },\n"
+     "                React.createElement(\"b\", null, \"合规与隐私\"),\n"
+     "                React.createElement(\"ul\", null,\n"
+     "                    React.createElement(\"li\", null, React.createElement(\"strong\", null, \"AI 生成标识：\"), \"每条回复都会标注「AI 生成」；复制或导出的内容同样由 AI 生成，请勿直接当作事实来源。\"),\n"
+     "                    React.createElement(\"li\", null, React.createElement(\"strong\", null, \"数据去向：\"), \"你的消息从浏览器直接发给你选择的模型厂商（DeepSeek / 智谱）。本工具没有服务器，不中转、不保存你的对话内容。\"),\n"
+     "                    React.createElement(\"li\", null, React.createElement(\"strong\", null, \"不要输入：\"), \"身份证号、银行卡号、密码、验证码、他人隐私等敏感个人信息。\"),\n"
+     "                    React.createElement(\"li\", null, React.createElement(\"strong\", null, \"使用边界：\"), \"医疗、法律、投资等专业问题以专业人士意见为准；请勿用于生成违法违规内容，模型可能被厂商安全策略拒绝。\"),\n"
+     "                    React.createElement(\"li\", null, React.createElement(\"strong\", null, \"密钥安全：\"), \"API Key 保存在本机浏览器。不勾选「记住」时只存在于当前标签页，关闭即失效。\"))),"),
+
+    # ---- 透明化：让用户看到这个场景到底会怎么要求模型 ----
+    ("27-scene-transparency",
+     L(1475),
+     "            modal === 'scenes' && selectedScene && React.createElement(\"div\", { className: \"mb-scene-why\" },\n"
+     "                React.createElement(\"b\", null, '「' + selectedScene.name + '」会这样要求模型'),\n"
+     "                React.createElement(\"p\", null, selectedScene.instruction)),\n"
+     + L(1475)),
+
+    # ---- 场景数量不再硬编码（原来写死 43 / 9，改清单后就不对了） ----
+    ("28a-scene-count-nav",
+     L(1216),
+     "                    React.createElement(\"small\", null, catalog_1.SCENES.filter(s => !s.tool).length)),"),
+    ("28b-tool-count-nav",
+     L(1220),
+     "                    React.createElement(\"small\", null, catalog_1.SCENES.filter(s => s.tool).length)),"),
+    ("29-scene-modal-copy",
+     "'原站的 43 个场景，在同一个聊天框里使用。'",
+     "'选中场景后，对应的写作指令会真正进入发给模型的提示词。'"),
 ]
 
 

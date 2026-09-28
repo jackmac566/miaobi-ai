@@ -1,0 +1,8 @@
+function Markdown({ text, onCopy }) {
+=====
+/** 只允许 http/https：模型（或检索结果）给出的链接不能是 javascript: / data: 等协议。 */
+function safeHref(u) {
+    const s = String(u == null ? '' : u).trim();
+    return /^https?:\/\//i.test(s) ? s : '#';
+}
+function Markdown({ text, onCopy }) {

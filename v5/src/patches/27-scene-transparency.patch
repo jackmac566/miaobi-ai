@@ -1,0 +1,6 @@
+            !catalogItems.length && React.createElement("div", { className: "mb-empty-panel" },
+=====
+            modal === 'scenes' && selectedScene && React.createElement("div", { className: "mb-scene-why" },
+                React.createElement("b", null, '「' + selectedScene.name + '」会这样要求模型'),
+                React.createElement("p", null, selectedScene.instruction)),
+            !catalogItems.length && React.createElement("div", { className: "mb-empty-panel" },

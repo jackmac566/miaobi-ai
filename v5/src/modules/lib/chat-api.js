@@ -57,10 +57,18 @@ function makeChatRequest(messages, settings, limit = 20000) {
         webSearch: settings.webSearch === true,
         searchQuery: current.slice(0, 400),
     };
-    /* 写作控制信息只在写作模式下携带，避免普通对话白白变长、变慢。 */
-    if (body.intent !== 'chat' || (settings.scene && settings.scene !== 'auto')) {
-        body.writing = { scene: settings.scene, style: settings.style, length: settings.length, preference: settings.preference, intensity: settings.intensity, audience: settings.audience, requirements: settings.requirements };
-    }
+    /* 写作设置一律带上，"要不要注入提示词"的判断只在一个地方（connection 的
+       hasWritingIntent）。之前是按条件在这里决定带不带，结果场景选择被静默丢掉、
+       43 个场景全部失效——这种"两个地方各判断一次"的写法就是漏掉东西的根源。 */
+    body.writing = {
+        scene: settings.scene,
+        style: settings.style,
+        length: settings.length,
+        preference: settings.preference,
+        intensity: settings.intensity,
+        audience: settings.audience,
+        requirements: settings.requirements,
+    };
     if (new TextEncoder().encode(JSON.stringify(body)).length > 256000)
         throw new api_1.ApiError('请求体过大，请减少附件内容。');
     return { body, omitted: prior.length - keep.length };

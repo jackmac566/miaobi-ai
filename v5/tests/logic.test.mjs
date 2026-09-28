@@ -283,5 +283,69 @@ for (const [key, alias] of used) {
 ok(`检查了 ${used.size} 处跨模块调用，导出齐全`, missing.length === 0, missing.join('；'));
 ok('connection 导出了界面用到的 saveConfig / capabilities', typeof load('lib/connection').saveConfig === 'function' && typeof load('lib/connection').capabilities === 'function');
 
+console.log('\n[15] 写作场景：从「摆设」变成「真实生效」');
+const cat = load('lib/catalog');
+ok(`场景已从 43 精简到 ${cat.SCENES.length} 个`, cat.SCENES.length === 38, String(cat.SCENES.length));
+const ids = cat.SCENES.map(s => s.id);
+ok('场景 id 无重复', new Set(ids).size === ids.length);
+ok('场景名称无重复', new Set(cat.SCENES.map(s => s.name)).size === cat.SCENES.length);
+const instrSet = new Set(cat.SCENES.map(s => s.instruction));
+ok('每个场景的指令都不同（没有换个名字的重复项）', instrSet.size === cat.SCENES.length);
+ok('每个场景都有实质指令（≥40 字）', cat.SCENES.every(s => s.instruction && s.instruction.length >= 40),
+  cat.SCENES.filter(s => !s.instruction || s.instruction.length < 40).map(s => s.id).join(','));
+ok('通用处理组才有 tool 字段', cat.SCENES.every(s => (s.group === '通用处理') === !!s.tool));
+ok('两个入口不再重复展示同一批场景',
+  cat.groupsFor('scenes').length === 6 && cat.groupsFor('tools').join() === '全部,通用处理');
+
+console.log('\n[15b] 场景 + 写作设置必须真的改变请求内容');
+async function systemPromptFor(writing) {
+  calls.length = 0;
+  fetchPlan = [() => sse([frame({ choices: [{ delta: { content: 'x' } }] }), frame({ choices: [{ delta: {}, finish_reason: 'stop' }] }), 'data: [DONE]\n\n'])];
+  await collect(await conn.apiFetch('/api/chat', { method: 'POST', body: JSON.stringify({ model: 'ds-fast', effort: 'off', messages: [{ role: 'user', content: '写点东西' }], writing }) }));
+  return calls[0].body.messages[0].content;
+}
+const base = { scene: 'auto', style: '自然松弛', length: '标准 · 150—300字', preference: '', intensity: '标准', audience: '', requirements: '' };
+const pAuto = await systemPromptFor(base);
+const pRedbook = await systemPromptFor({ ...base, scene: 'redbook' });
+const pWeekly = await systemPromptFor({ ...base, scene: 'weekly' });
+ok('未选场景时不注入写作指令（纯聊天保持轻快）', !pAuto.includes('【写作场景】'));
+ok('选了场景后真的注入指令', pRedbook.includes('【写作场景】小红书种草'));
+ok('不同场景产生不同请求（v4.2 里完全相同）', pRedbook !== pWeekly && pWeekly.includes('工作总结'));
+ok('场景指令带上了该场景的具体要求', pRedbook.includes('小红书') && pRedbook.includes('话题标签'));
+
+const pStyle = await systemPromptFor({ ...base, scene: 'email', style: '正式专业' });
+ok('风格设置生效', pStyle.includes('【风格】正式专业'));
+const pAudience = await systemPromptFor({ ...base, scene: 'email', audience: '投资方' });
+ok('读者设置生效', pAudience.includes('投资方'));
+const pReq = await systemPromptFor({ ...base, scene: 'email', requirements: '不要用感叹号' });
+ok('额外要求生效', pReq.includes('不要用感叹号'));
+const pPref = await systemPromptFor({ ...base, scene: 'polish', preference: '简洁克制' });
+ok('输出偏好在工具场景下生效', pPref.includes('简洁克制'));
+const pDeep = await systemPromptFor({ ...base, scene: 'proposal', intensity: '深度' });
+ok('处理强度生效', pDeep.includes('【处理强度】'));
+ok('所有写作指令都带事实底线', pDeep.includes('不编造数据'));
+
+console.log('\n[15c] 篇幅联动输出上限（直接影响等待时间）');
+ok('简短 → 收紧到 640', cat.lengthTokens(cat.LENGTHS[0]) === 640);
+ok('标准 → 1400', cat.lengthTokens(cat.LENGTHS[1]) === 1400);
+ok('详细 → 2600', cat.lengthTokens(cat.LENGTHS[2]) === 2600);
+calls.length = 0;
+fetchPlan = [() => sse([frame({ choices: [{ delta: { content: 'x' } }] }), frame({ choices: [{ delta: {}, finish_reason: 'stop' }] }), 'data: [DONE]\n\n'])];
+await collect(await conn.apiFetch('/api/chat', { method: 'POST', body: JSON.stringify({ model: 'ds-fast', effort: 'off', messages: [{ role: 'user', content: 'x' }], writing: { ...base, scene: 'weibo', length: cat.LENGTHS[0] } }) }));
+ok('选「简短」后 max_tokens 被收紧', calls[0].body.max_tokens === 640, String(calls[0].body.max_tokens));
+ok('hasWritingIntent 能识别默认设置', cat.hasWritingIntent({ ...base }) === false);
+ok('hasWritingIntent 能识别改过篇幅', cat.hasWritingIntent({ ...base, length: cat.LENGTHS[2] }) === true);
+
+console.log('\n[16] 安全与合规');
+ok('产物里有 CSP', html.includes('Content-Security-Policy'));
+const csp = (html.match(/content="default-src[^"]*"/) || [''])[0];
+ok('connect-src 只允许两家厂商', csp.includes('connect-src https://api.deepseek.com https://open.bigmodel.cn') && !/connect-src[^;]*\*/.test(csp));
+ok('CSP 禁用 object/frame/base-uri', csp.includes("object-src 'none'") && csp.includes("frame-src 'none'") && csp.includes("base-uri 'none'"));
+ok('Markdown 链接有协议白名单', html.includes('function safeHref') && html.includes('href: safeHref(link[2])'));
+ok('回复标注了 AI 生成', html.includes('AI 生成'));
+ok('有合规与隐私说明', html.includes('合规与隐私') && html.includes('不要输入'));
+ok('暗色最淡一级文字已提到合规对比度', html.includes('--mb-muted:#a6a6a6;--mb-faint:#949494;'));
+ok('亮色最淡一级文字已提到合规对比度', html.includes('--mb-faint:#76766f;'));
+
 console.log(`\n${fail === 0 ? '\x1b[32m' : '\x1b[31m'}通过 ${pass} 项，失败 ${fail} 项\x1b[0m\n`);
 process.exit(fail === 0 ? 0 : 1);

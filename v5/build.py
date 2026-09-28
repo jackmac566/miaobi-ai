@@ -19,7 +19,10 @@
 
 import re
 import sys
+import os
 import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -27,6 +30,7 @@ BASE = ROOT / "_src" / "miaobi-v4.2.html"
 MODDIR = ROOT / "src" / "modules"
 PATCHDIR = ROOT / "src" / "patches"
 OUT = ROOT / "dist" / "miaobi-v5.html"
+NODE = "/Users/macjack622/.workbuddy/binaries/node/versions/22.22.2-3/bin/node"
 
 MOD_HEAD = re.compile(r'^"([^"]+)":function\(module,exports,require\)\{\s*$')
 
@@ -37,6 +41,12 @@ REQUIRED_MARKERS = [
     "deepseek-v4-flash",
     "reasoning.delta",
     "images/generations",
+    # v5.1：场景必须真的进提示词，安全与合规标记必须在
+    "buildWritingPrompt",
+    "hasWritingIntent",
+    "Content-Security-Policy",
+    "safeHref",
+    "AI 生成",
 ]
 
 
@@ -113,6 +123,37 @@ def apply_patches(text):
     return text, results
 
 
+def check_script_syntax(text):
+    """把内联模块脚本抽出来交给 node --check。
+
+    为什么必须做：补丁是字符串级替换，多一个或少一个括号在构建阶段完全看不出来，
+    要到打开页面才会白屏。这次改造就踩过一次（少一个右括号）。
+    提脚本用「最后一个 <script> 到最后一个 </script>」——压缩后的 React bundle 里
+    含裸字符串 "<script>"，用非贪婪正则会错位。
+    """
+    opens = [m.end() for m in re.finditer(r"<script>", text)]
+    closes = [m.start() for m in re.finditer(r"</script>", text)]
+    if not opens or not closes or closes[-1] < opens[-1]:
+        return "跳过（没找到完整的脚本块）"
+    code = text[opens[-1]:closes[-1]]
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as f:
+        f.write(code)
+        path = f.name
+    try:
+        out = subprocess.run([NODE, "--check", path], capture_output=True, text=True)
+        if out.returncode != 0:
+            first = (out.stderr or "").strip().split("\n")
+            return "失败：" + " | ".join(first[:4])
+        return None
+    except FileNotFoundError:
+        return "跳过（找不到 node）"
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
 def main():
     check_only = "--check" in sys.argv
 
@@ -150,6 +191,14 @@ def main():
             print(f"  ! {m}")
     else:
         print("关键标记全部存在")
+
+    syntax = check_script_syntax(text)
+    if syntax is None:
+        print("内联脚本语法检查：通过")
+    elif syntax.startswith("跳过"):
+        print("内联脚本语法检查：" + syntax)
+    else:
+        raise SystemExit("内联脚本语法检查未通过，构建中止：\n  " + syntax)
 
     for bad in ("gpt6", "claude55", "GPT-6", "GPT-5.6", "ChatGPT"):
         if bad in text:

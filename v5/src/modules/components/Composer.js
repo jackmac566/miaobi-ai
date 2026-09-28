@@ -67,7 +67,7 @@ function Composer({ value, onChange, onSend, onStop, busy, attachments, onFiles,
                         ? React.createElement("span", { className: "mb-scene-chip" },
                             React.createElement(Icon_1.default, { name: "wand", size: 14 }),
                             React.createElement("span", null, settings.imageModel === 'cogview-4' ? 'CogView-4 画图' : 'CogView-3-Flash 画图'))
-                        : React.createElement("button", { className: "mb-scene-chip", onClick: onScenes, title: "选择写作场景" },
+                        : React.createElement("button", { className: "mb-scene-chip", onClick: onScenes, title: scene ? `${scene.name}：${scene.instruction}` : "选择写作场景" },
                             React.createElement(Icon_1.default, { name: scene?.icon || 'spark', size: 14 }),
                             React.createElement("span", null, scene?.name || (settings.intent === 'chat' ? '自由对话' : '自由创作')),
                             React.createElement(Icon_1.default, { name: "chevron", size: 12 }))),
@@ -84,9 +84,9 @@ function Composer({ value, onChange, onSend, onStop, busy, attachments, onFiles,
                     onFiles(e.target.files); e.target.value = ''; } })),
         React.createElement("div", { className: "mb-composer-foot" },
             React.createElement("span", null,
-                imageMode ? '画图由智谱 CogView 提供 · 图片链接有效期有限，请及时下载'
-                    : settings.webSearch ? '联网检索由智谱提供 · 回答里会保留来源链接'
-                        : (0, models_1.modelOf)(settings.model).apiModel + ' · 请核对重要信息'),
+                imageMode ? 'AI 生成图片 · 智谱 CogView · 链接有效期有限，请及时下载'
+                    : settings.webSearch ? 'AI 生成 · 已联网检索（智谱）· 请核对来源后再引用'
+                        : 'AI 生成 · ' + (0, models_1.modelOf)(settings.model).apiModel + ' · 请核对后使用'),
             React.createElement("span", null, chars > 0 ? `${chars.toLocaleString()} / ${limit.toLocaleString()} 字` : 'Enter 发送 · Shift + Enter 换行')));
 }
 

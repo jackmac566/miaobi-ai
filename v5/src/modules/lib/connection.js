@@ -2,6 +2,7 @@
 
 "use strict";
 const models_1 = require('./models');
+const catalog_1 = require('./catalog');
 const CONFIG_KEY='miaobi-v5-config';
 const SESSION_KEY='miaobi-v5-session';
 const USAGE_KEY='miaobi-v5-usage';
@@ -179,7 +180,8 @@ function contentText(value){
   return'';
 }
 
-/* 身份提示词：只讲真实模型，不允许虚构工具、联网或外部操作。 */
+/* 身份提示词：只讲真实模型；同时写明内容底线。
+   这是模型侧的第一道合规防线（界面上还有 AI 生成标识与用户告知）。 */
 let identityCache='';
 function productIdentity(apiModel,providerLabel,searchOn){
   const key=apiModel+'|'+providerLabel+'|'+searchOn;
@@ -189,7 +191,11 @@ function productIdentity(apiModel,providerLabel,searchOn){
    +(searchOn
      ? '本次已开启联网检索，检索结果会随消息提供；引用时保留来源链接，不要编造未出现在结果里的网址、数据或日期。'
      : '本次没有联网，也无法访问外部系统；不要声称已联网、已搜索或已执行了任何工具操作。'
-       +'如果问题需要最新数据，直接说明你无法获取实时信息。');
+       +'如果问题需要最新数据，直接说明你无法获取实时信息。')
+   +'内容底线：不生成违反法律法规或危害他人的内容；不编造事实、数据、文献、资质与亲身经历，信息不足时如实说明；'
+   +'涉及医疗、法律、投资等专业领域时只做一般性信息整理，明确提示需要专业人士判断，不给确定性结论；'
+   +'涉及未成年人时格外谨慎；不输出针对任何群体的歧视或仇恨内容；不协助规避安全机制。'
+   +'你的输出会由用户自行核对后使用，因此宁可保守也不要编造。';
   identityCache={key,value};
   return value;
 }
@@ -296,7 +302,10 @@ async function directChat(options){
 
   const endpoint=chatEndpoint(provider);
   const requestId=body.requestId||uid();
-  const maxTokens=Math.max(256,Math.min(32768,Number(body.maxTokens||cfg.maxTokens||4096)));
+  /* 篇幅选择联动 max_tokens：选了"简短"就收紧上限，出完就停，更快也更省。 */
+  let maxTokens=Math.max(256,Math.min(32768,Number(body.maxTokens||cfg.maxTokens||4096)));
+  const writingOn=catalog_1.hasWritingIntent(body.writing);
+  if(writingOn&&body.writing&&body.writing.length)maxTokens=Math.min(maxTokens,catalog_1.lengthTokens(body.writing.length));
   const host=provider==='zhipu'?models_1.PROVIDERS.zhipu.label:'DeepSeek';
   const recordId=beginRecord({id:requestId,provider,modelId:model.id,apiModel:model.apiModel,purpose:body.purpose||'chat',effort:body.effort});
 
@@ -326,6 +335,9 @@ async function directChat(options){
 
     const system=[productIdentity(model.apiModel,host,wantSearch),effortInstruction(body.effort)];
     if(body.purpose==='connection-test')system.length=1;
+    /* 关键：把写作场景与设置真正拼进 system 提示词。
+       v4.2 的 43 个场景一个都没生效，就是因为写作设置从来没有进入请求。 */
+    else if(writingOn)system.push(catalog_1.buildWritingPrompt(body.writing));
     const payloadMessages=[{role:'system',content:system.join('\n')},...messages,...history];
 
     const payload={model:model.apiModel,messages:payloadMessages,stream:true,max_tokens:body.purpose==='connection-test'?64:maxTokens,...models_1.reasoningParam(model,body.effort)};

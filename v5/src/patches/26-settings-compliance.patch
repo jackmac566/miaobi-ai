@@ -1,0 +1,12 @@
+            React.createElement('div',{className:'mb-settings-links'},React.createElement('button',{className:'mb-secondary-btn',onClick:()=>openModal('usage')},'查看用量与费用'),React.createElement('button',{className:'mb-secondary-btn',onClick:()=>openModal('help')},'使用帮助')),
+=====
+            React.createElement('div',{className:'mb-settings-links'},React.createElement('button',{className:'mb-secondary-btn',onClick:()=>openModal('usage')},'查看用量与费用'),React.createElement('button',{className:'mb-secondary-btn',onClick:()=>openModal('help')},'使用帮助')),
+            React.createElement('div',{className:'mb-setting-line'},React.createElement('div',null,React.createElement('b',null,'AI 生成内容'),React.createElement('small',null,'所有回复均由 AI 模型生成，可能出错、过时或不完整，请核对后使用。'))),
+            React.createElement("div", { className: "mb-legal-block" },
+                React.createElement("b", null, "合规与隐私"),
+                React.createElement("ul", null,
+                    React.createElement("li", null, React.createElement("strong", null, "AI 生成标识："), "每条回复都会标注「AI 生成」；复制或导出的内容同样由 AI 生成，请勿直接当作事实来源。"),
+                    React.createElement("li", null, React.createElement("strong", null, "数据去向："), "你的消息从浏览器直接发给你选择的模型厂商（DeepSeek / 智谱）。本工具没有服务器，不中转、不保存你的对话内容。"),
+                    React.createElement("li", null, React.createElement("strong", null, "不要输入："), "身份证号、银行卡号、密码、验证码、他人隐私等敏感个人信息。"),
+                    React.createElement("li", null, React.createElement("strong", null, "使用边界："), "医疗、法律、投资等专业问题以专业人士意见为准；请勿用于生成违法违规内容，模型可能被厂商安全策略拒绝。"),
+                    React.createElement("li", null, React.createElement("strong", null, "密钥安全："), "API Key 保存在本机浏览器。不勾选「记住」时只存在于当前标签页，关闭即失效。"))),

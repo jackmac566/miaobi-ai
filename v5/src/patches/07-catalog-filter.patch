@@ -1,0 +1,3 @@
+    const catalogItems = catalog_1.SCENES.filter(s => (modal !== 'tools' || s.tool) && (group === '全部' || s.group === group) && (!query || `${s.name}${s.desc}${s.group}`.toLowerCase().includes(query.toLowerCase())));
+=====
+    const catalogItems = catalog_1.SCENES.filter(s => (modal === 'tools' ? !!s.tool : !s.tool) && (group === '全部' || s.group === group) && (!query || `${s.name}${s.desc}${s.group}`.toLowerCase().includes(query.toLowerCase())));
