@@ -821,13 +821,20 @@ async function generateRoute(request, env) {
   } catch (error) {
     clearTimeout(timer);
     await releaseUsage(env.DB, key);
-    return json({ error: `DeepSeek 请求失败，本次不扣次数：${error instanceof Error ? error.message : "网络异常"}`, code: "DEEPSEEK_UNAVAILABLE" }, 503);
+    // 上游报错详情只进服务端日志，不回传浏览器：
+    // 里面可能带请求 ID、内部端点等不该公开的信息。
+    console.error("deepseek transport failure", error);
+    return json({ error: "DeepSeek 请求失败，本次不扣次数，请稍后重试", code: "DEEPSEEK_UNAVAILABLE" }, 503);
   }
   clearTimeout(timer);
   if (!response.ok) {
     await releaseUsage(env.DB, key);
     const detail = (await response.text()).slice(0, 240);
-    return json({ error: `DeepSeek 未通过真实调用（HTTP ${response.status}），本次不扣次数：${detail}`, code: "DEEPSEEK_UNAVAILABLE" }, 503);
+    console.error("deepseek rejected request", response.status, detail);
+    return json({
+      error: `DeepSeek 未通过真实调用（HTTP ${response.status}），本次不扣次数，请稍后重试`,
+      code: "DEEPSEEK_UNAVAILABLE",
+    }, 503);
   }
   const payload = await response.json().catch(() => null);
   const content = payload?.choices?.[0]?.message?.content;
