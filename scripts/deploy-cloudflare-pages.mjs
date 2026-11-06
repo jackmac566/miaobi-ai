@@ -1,11 +1,11 @@
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { access, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
-const RELEASE_VERSION = "V1.5.0";
+const RELEASE_VERSION = "V1.5.1";
 const WRANGLER_VERSION = "4.92.0";
 const DEFAULT_PROJECT = "miaobi-ai";
 const DATABASE_NAME = process.env.CLOUDFLARE_D1_DATABASE?.trim() || "miaobi-ai-db";
@@ -331,6 +331,14 @@ async function main() {
   const deployCheckSecret = putGeneratedSecret(projectName, "DEPLOY_CHECK_SECRET");
 
   console.log(`[6/7] 上传到固定 Pages 项目 ${projectName}…`);
+  // 本地开发构建（根目录 vite + Cloudflare 插件）会在项目根生成
+  // `.wrangler/deploy/config.json`；它与 cloudflare/wrangler.jsonc 的基准目录不同，
+  // 会让 wrangler 无法判断使用哪份配置而中止上传。该文件是本地开发状态，可安全删除。
+  try {
+    await rm(path.join(projectRoot, ".wrangler", "deploy", "config.json"), { force: true });
+  } catch {
+    // 文件不存在或不可删除时继续尝试上传。
+  }
   const deployed = run(["pages", "deploy", "dist", "--project-name", projectName, "--branch", "main", "--commit-dirty=true"], {
     capture: true,
     cwd: cloudflareRoot,

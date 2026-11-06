@@ -1,4 +1,4 @@
-const VERSION = "V1.5.0";
+const VERSION = "V1.5.1";
 const FREE_LIMIT = 10;
 const MEMBER_LIMIT = 100;
 const WINDOW_MS = 24 * 60 * 60 * 1000;
