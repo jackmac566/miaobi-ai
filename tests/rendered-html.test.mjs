@@ -48,22 +48,26 @@ test("PWA shell is installable without caching account or admin APIs", async () 
   assert.match(serviceWorker, /pathname\.startsWith\(\"\/admin\"\)/);
   assert.match(staticServiceWorker, /miaobi-shell-v1\.5\.2/);
   assert.deepEqual(JSON.parse(manifest).icons.map(icon => icon.sizes), ["192x192", "512x512"]);
-  assert.match(staticPayment, /enabled:\s*false/);
-  assert.match(staticPayment, /methods:\s*\[\]/);
-  assert.doesNotMatch(staticPayment, /wechat-pay|alipay-pay|shikanghou4/);
+  // payment-config.js 是部署方私有配置，这里只校验格式与安全边界：
+  // 不得出现第三方聚合支付标识或手机号。
+  assert.match(staticPayment, /window\.__MIAOBI_PAYMENT__/);
+  assert.doesNotMatch(staticPayment, /wechat-pay|alipay-pay/);
   assert.doesNotMatch(staticPayment, /手机号/);
 });
 
-test("open-source defaults contain no owner contact, payment QR or Sites project binding", async () => {
+test("open-source defaults stay clean; deployment payment config is explicit", async () => {
   const [page, legal, payment, hosting] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/legal/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../cloudflare/public/payment-config.js", import.meta.url), "utf8"),
     readFile(new URL("../.openai/hosting.example.json", import.meta.url), "utf8"),
   ]);
-  const publicSource = `${page}\n${legal}\n${payment}`;
+  // 框架与页面默认值不包含任何站点所有者联系方式或收款信息；
+  // payment-config.js 是部署方的私有配置，允许填写本站联系方式与收款方式。
+  const publicSource = `${page}\n${legal}`;
   assert.doesNotMatch(publicSource, /shikanghou4|wechat-pay|alipay-pay/);
   assert.match(publicSource, /enabled:\s*false/);
+  assert.match(payment, /window\.__MIAOBI_PAYMENT__/);
   assert.deepEqual(JSON.parse(hosting), {
     d1: "DB",
     project_id: "replace-with-your-sites-project-id",

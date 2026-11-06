@@ -278,7 +278,9 @@ async function waitForPage(url, deployCheckSecret) {
       const bundleTexts = [...fetched.map(([, text]) => text), ...nestedTexts];
       const pageReady = pageResponse.ok && html.includes("妙笔AI") && html.includes("DeepSeek") && html.includes("payment-config.js");
       const paymentDisabled = /enabled\s*:\s*false/.test(paymentConfig);
-      const paymentMethodsReady = paymentConfig.includes("wechat") && paymentConfig.includes("alipay");
+      // 部署方可能只开一种收款方式（例如仅微信个人收款码），
+      // 因此启用状态下只要求存在至少一个可用的收款渠道。
+      const paymentMethodsReady = /(wechat|alipay)/.test(paymentConfig) && /qr\s*:\s*["']\/[^"']+["']/.test(paymentConfig);
       const paymentReady = paymentResponse.ok && (paymentDisabled || paymentMethodsReady);
       const bundleReady = bundleTexts.some(bundle => bundle.includes(RELEASE_VERSION) && bundle.includes("每 24 小时 10 次"));
       const backendReady = healthResponse.ok && health?.release === RELEASE_VERSION && health?.database === true;
@@ -287,7 +289,7 @@ async function waitForPage(url, deployCheckSecret) {
         return {
           verified: true,
           status: pageResponse.status,
-          checks: [`${RELEASE_VERSION} 页面脚本`, "DeepSeek 真实非空响应", "D1 数据库", "手机登录入口", paymentDisabled ? "人工收款已安全关闭" : "微信/支付宝收款配置"],
+          checks: [`${RELEASE_VERSION} 页面脚本`, "DeepSeek 真实非空响应", "D1 数据库", "手机登录入口", paymentDisabled ? "人工收款已安全关闭" : "收款方式已配置（微信/支付宝）"],
           deepSeekConfigured: Boolean(health.deepSeekConfigured),
           deepSeekOperational: true,
           resolvedModel: deepSeek.model || health.model,
