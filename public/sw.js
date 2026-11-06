@@ -1,5 +1,5 @@
-const CACHE_NAME = "miaobi-shell-v1.5.0";
-const APP_SHELL = ["/", "/updates", "/legal", "/manifest.webmanifest", "/favicon.ico", "/icon-192.png", "/icon-512.png"];
+const CACHE_NAME = "miaobi-shell-v1.5.1";
+const APP_SHELL = ["/", "/updates", "/legal", "/privacy", "/terms", "/manifest.webmanifest", "/favicon.ico", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));

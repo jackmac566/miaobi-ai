@@ -6,5 +6,5 @@
     <button class="primary" loading="{{loading}}" bindtap="run">{{loading ? "正在处理…" : "开始处理"}}</button>
     <view wx:if="{{error}}" class="error">{{error}}</view>
   </view>
-  <view wx:if="{{result}}" class="glass result"><view class="result-title row between"><text>处理结果</text><text class="pill" bindtap="copy">复制</text></view><view class="result-content">{{result}}</view></view>
+  <view wx:if="{{result}}" class="glass result"><view class="result-title row between"><view class="row"><text>处理结果</text><text class="ai-badge">AI 生成</text></view><text class="pill" bindtap="copy">复制</text></view><view class="result-content">{{result}}</view></view>
 </view>

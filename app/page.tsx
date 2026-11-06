@@ -5,6 +5,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { changelog, latestChangelog } from "../lib/changelog";
 import { MEMBERSHIP_TIERS } from "../lib/membership";
+import { VERSION } from "../lib/version";
+import InstallPrompt from "./components/InstallPrompt";
+import UpdateChecker from "./components/UpdateChecker";
 import {
   normalizeToolPreference,
   preferencesForTool,
@@ -248,7 +251,7 @@ export default function Home() {
   const [generationError, setGenerationError] = useState("");
   const [history, setHistory] = useState<Draft[]>(initialHistory);
   const [toast, setToast] = useState("");
-  const [modal, setModal] = useState<"member" | "share" | "profile" | "legal" | null>(() =>
+  const [modal, setModal] = useState<"member" | "share" | "profile" | "legal" | "deleteAccount" | null>(() =>
     typeof window !== "undefined" && window.__MIAOBI_STATIC_MODE__ === true && location.pathname === "/legal" ? "legal" : null
   );
   const [tool, setTool] = useState<string | null>(null);
@@ -261,6 +264,7 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("全部");
   const [account, setAccount] = useState<Account>({ signedIn: false, remaining: STATIC_DAILY_LIMIT, isAdmin: false });
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [accountSyncFailed, setAccountSyncFailed] = useState(false);
   const premiumAccess = account.isMember === true || account.isAdmin === true;
 
@@ -316,6 +320,26 @@ export default function Home() {
   }, []);
 
   const showToast = (text: string) => { setToast(text); setTimeout(() => setToast(""), 1800); };
+  const requestAccountDeletion = async () => {
+    setDeletingAccount(true);
+    try {
+      const response = await fetch("/api/account", { method: "DELETE" });
+      const data = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (!response.ok || !data?.ok) throw new Error(data?.error || "注销失败，请稍后重试");
+      try {
+        Object.keys(localStorage).filter(key => key.startsWith("miaobi-")).forEach(key => localStorage.removeItem(key));
+      } catch {
+        // 本地存储清理失败不影响服务端删除结果。
+      }
+      setModal(null);
+      showToast("账号数据已删除，正在刷新…");
+      setTimeout(() => location.reload(), 1200);
+    } catch (error) {
+      showToast(friendlyGenerationError(error, "注销失败，请稍后重试"));
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
   const chooseTool = (next: string | null) => {
     setTool(next);
     setToolPreference(preferencesForTool(next)[0]);
@@ -548,7 +572,7 @@ export default function Home() {
   const exportResults = () => {
     if (!premiumAccess) { setModal("member"); return; }
     if (!results.length) return showToast("请先生成文案");
-    const text = results.map((item, index) => `版本 ${index + 1}\n${item}`).join("\n\n--------------------\n\n");
+    const text = "AI 生成内容 · 请人工核对后使用\n\n" + results.map((item, index) => `版本 ${index + 1}\n${item}`).join("\n\n--------------------\n\n");
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
     const link = document.createElement("a");
     link.href = url;
@@ -637,6 +661,7 @@ export default function Home() {
           {!account.signedIn && <a className="top-signin" href={signInHref}>登录 / 注册</a>}
           {account.signedIn && <button className="top-account" onClick={() => setModal("profile")}>我的账号</button>}
           {account.isAdmin && <a className="top-admin" href="/admin">运营后台</a>}
+          <InstallPrompt />
           {isStaticMode() && <span className="top-local" title="国内访客版由服务端安全调用 DeepSeek">国内访客版</span>}
           <button className="avatar" onClick={() => setModal("profile")}>{account.name?.slice(0, 1) || "妙"}</button>
         </div>
@@ -661,7 +686,8 @@ export default function Home() {
         setPage("create");
       }} />}
       {page === "updates" && <UpdatesPanel />}
-      <footer className="site-footer"><span>妙笔AI · AI 生成内容请人工核对后使用</span><div><button onClick={() => setPage("updates")}>更新日志</button>{isStaticMode() ? <button onClick={() => setModal("legal")}>服务、隐私与退款说明</button> : <a href="/legal">服务、隐私与退款说明</a>}<a href="/admin">站长登录</a></div></footer>
+      <UpdateChecker />
+      <footer className="site-footer"><span>妙笔AI · AI 生成内容请人工核对后使用 · {VERSION}</span><div><button onClick={() => setPage("updates")}>更新日志</button>{isStaticMode() ? <button onClick={() => setModal("legal")}>服务、隐私与退款说明</button> : <a href="/legal">服务、隐私与退款说明</a>}<a href="/privacy">隐私政策</a><a href="/terms">用户协议</a><a href="/admin">站长登录</a></div></footer>
     </main>
 
     <div className="mobile-dock">
@@ -671,7 +697,7 @@ export default function Home() {
         : <a className="mobile-account-entry" href={signInHref} aria-label="登录或注册"><span>♙</span><small>登录</small></a>}
     </div>
     {toast && <div className="toast" role="status" aria-live="polite">✓ {toast}</div>}
-    {modal && <Modal type={modal} close={() => setModal(null)} account={account} copy={copy} />}
+    {modal && <Modal type={modal} close={() => setModal(null)} account={account} copy={copy} switchTo={setModal} requestDeletion={requestAccountDeletion} deletingAccount={deletingAccount} />}
   </div>;
 }
 
@@ -749,7 +775,7 @@ function CreatePage({ scene, setScene, topic, setTopic, details, setDetails, aud
         {error && <div className="inline-error" role="alert"><b>本次未生成</b><p>{error}</p><small>质量检查未通过或服务异常时不会扣次数；可补充真实素材、降低处理强度后重试。</small></div>}
         {!results.length && !generating && !error && <div className="empty-result"><div className="magic-orb">✦</div><h2>成品质量，先取决于素材质量</h2><p>主题、真实细节、受众和目的越明确，结果越不像通用模板<br/>系统不会为了凑字数补造数据或经历</p><div><span>✓ 事实边界检查</span><span>✓ 场景专属结构</span><span>✓ 不同角度版本</span></div></div>}
         {generating && !results.length && <div className="loading-result" aria-live="polite"><div className="magic-orb pulse">✦</div><h2>正在创作…</h2><p>理解场景 · 提取事实 · 组织结构 · 清理套话</p><div className="progress"><i/></div></div>}
-        {!!results.length && <div className="results" aria-live="polite"><div className="result-top"><div><h2>{generating ? "正在优化当前结果…" : `已生成 ${results.length} 个不同版本`}</h2><p>所有版本均已保存；下方回执显示本次接口实际采用的控制项</p></div><div className="result-top-actions"><button className="ghost export" onClick={exportResults}>{premiumAccess ? "↓ 整组导出" : "♛ 整组导出"}</button><button className="ghost" onClick={generate} disabled={generating}>↻ 再生成一组</button></div></div>{results.map((r:string,i:number)=><article className="result-card" key={i}><div className="result-meta"><div><b>版本 {i+1}</b><span>{engineLabel}</span></div><small className="control-receipt">{receipt?.style || style} · {receipt?.length || length}{receipt?.intensity ? ` · ${receipt.intensity}` : ""}</small></div><textarea value={r} aria-label={`版本 ${i + 1} 内容`} onChange={event => updateResult(i, event.target.value)}/><div className="result-actions"><button onClick={()=>refine(i,"natural")} disabled={generating}>去AI味</button><button onClick={()=>refine(i,"shorten")} disabled={generating}>精简</button><button onClick={()=>favorite(r)}>♡ 收藏</button><button onClick={()=>share()}>分享网站</button><button onClick={()=>copy(r)} className="copy-btn">复制文案</button></div></article>)}</div>}
+        {!!results.length && <div className="results" aria-live="polite"><div className="result-top"><div><h2>{generating ? "正在优化当前结果…" : `已生成 ${results.length} 个不同版本`}</h2><p>所有版本均已保存；下方回执显示本次接口实际采用的控制项</p></div><div className="result-top-actions"><button className="ghost export" onClick={exportResults}>{premiumAccess ? "↓ 整组导出" : "♛ 整组导出"}</button><button className="ghost" onClick={generate} disabled={generating}>↻ 再生成一组</button></div></div>{results.map((r:string,i:number)=><article className="result-card" key={i}><div className="result-meta"><div><b>版本 {i+1}</b><span>{engineLabel}</span><span className="ai-badge" title="依据《人工智能生成合成内容标识办法》标注">AI 生成</span></div><small className="control-receipt">{receipt?.style || style} · {receipt?.length || length}{receipt?.intensity ? ` · ${receipt.intensity}` : ""}</small></div><textarea value={r} aria-label={`版本 ${i + 1} 内容`} onChange={event => updateResult(i, event.target.value)}/><div className="result-actions"><button onClick={()=>refine(i,"natural")} disabled={generating}>去AI味</button><button onClick={()=>refine(i,"shorten")} disabled={generating}>精简</button><button onClick={()=>favorite(r)}>♡ 收藏</button><button onClick={()=>share()}>分享网站</button><button onClick={()=>copy(r)} className="copy-btn">复制文案</button></div></article>)}</div>}
       </section>
     </div>
   </div>;
@@ -759,7 +785,7 @@ function ToolsPage({ tool, setTool, text, setText, result, error, run, generatin
   if (tool) {
     const preferenceRule = normalizeToolPreference(tool, preference);
     const intensityRule = toolIntensityInstruction(tool, intensity);
-    return <div className="page"><div className="page-head"><div><button className="back" onClick={()=>setTool(null)}>←</button><div><p>保留原意与事实 · 不擅自补写</p><h1>{tool}</h1></div></div><button className="ghost" onClick={()=>setTool(null)}>返回工具箱</button></div><div className="tool-workspace"><section className="panel"><label htmlFor="tool-source">粘贴需要处理的文字</label><textarea id="tool-source" className="tool-input" value={text} maxLength={inputLimit} onChange={e=>setText(e.target.value)} placeholder="在这里输入或粘贴完整原文；专有名词、数字和不能修改的部分请保留在原文中…"/><small className="input-counter">{text.length.toLocaleString()} / {Number(inputLimit).toLocaleString()} 字</small><div className="tool-preference"><label htmlFor="tool-preference">输出偏好</label><select id="tool-preference" value={preference} onChange={event=>setPreference(event.target.value)}>{preferencesForTool(tool).map(item=><option key={item}>{item}</option>)}</select></div><p className="control-explain">{preferenceRule.instruction}</p><div className="tool-options"><label>处理强度</label><div>{TOOL_INTENSITIES.map(item=><button type="button" key={item} aria-pressed={intensity===item} className={intensity===item?"active":""} onClick={()=>setIntensity(item)}>{item}</button>)}</div></div><p className="tool-intensity-note">{intensityRule.instruction}</p><button className="primary generate-wide" onClick={run} disabled={generating}>{generating?"正在处理…":`✦ 开始${tool}`}</button></section><section className="panel output-panel"><div className="section-title"><h2>处理结果</h2>{result&&<button onClick={()=>copy(result)}>复制全部</button>}</div>{error&&<div className="inline-error compact" role="alert"><b>本次未生成</b><p>{error}</p><small>未通过质量检查时不会扣次数；请补充原文信息或降低强度后重试。</small></div>}{result?<><small className="output-engine">{engineLabel} · {receipt?.preference || preference} · {receipt?.intensity || intensity}</small><textarea value={result} readOnly/></>:!error&&<div className="output-empty">处理后的内容会显示在这里</div>}</section></div></div>;
+    return <div className="page"><div className="page-head"><div><button className="back" onClick={()=>setTool(null)}>←</button><div><p>保留原意与事实 · 不擅自补写</p><h1>{tool}</h1></div></div><button className="ghost" onClick={()=>setTool(null)}>返回工具箱</button></div><div className="tool-workspace"><section className="panel"><label htmlFor="tool-source">粘贴需要处理的文字</label><textarea id="tool-source" className="tool-input" value={text} maxLength={inputLimit} onChange={e=>setText(e.target.value)} placeholder="在这里输入或粘贴完整原文；专有名词、数字和不能修改的部分请保留在原文中…"/><small className="input-counter">{text.length.toLocaleString()} / {Number(inputLimit).toLocaleString()} 字</small><div className="tool-preference"><label htmlFor="tool-preference">输出偏好</label><select id="tool-preference" value={preference} onChange={event=>setPreference(event.target.value)}>{preferencesForTool(tool).map(item=><option key={item}>{item}</option>)}</select></div><p className="control-explain">{preferenceRule.instruction}</p><div className="tool-options"><label>处理强度</label><div>{TOOL_INTENSITIES.map(item=><button type="button" key={item} aria-pressed={intensity===item} className={intensity===item?"active":""} onClick={()=>setIntensity(item)}>{item}</button>)}</div></div><p className="tool-intensity-note">{intensityRule.instruction}</p><button className="primary generate-wide" onClick={run} disabled={generating}>{generating?"正在处理…":`✦ 开始${tool}`}</button></section><section className="panel output-panel"><div className="section-title"><h2>处理结果</h2>{result&&<button onClick={()=>copy(result)}>复制全部</button>}</div>{error&&<div className="inline-error compact" role="alert"><b>本次未生成</b><p>{error}</p><small>未通过质量检查时不会扣次数；请补充原文信息或降低强度后重试。</small></div>}{result?<><small className="output-engine">{engineLabel} · {receipt?.preference || preference} · {receipt?.intensity || intensity}<span className="ai-badge" title="依据《人工智能生成合成内容标识办法》标注">AI 生成</span></small><textarea value={result} readOnly/></>:!error&&<div className="output-empty">处理后的内容会显示在这里</div>}</section></div></div>;
   }
   return <div className="page"><div className="title-row"><div><h1>文本工具箱</h1><p>对任意文字进行智能加工，让每一句表达都恰到好处</p></div><span className="badge">9 个实用工具</span></div><div className="tool-grid">{tools.map(t=><button className="tool-card" key={t[0]} onClick={()=>setTool(t[0])}><span>{t[2]}</span><div><h3>{t[0]}</h3><p>{t[1]}</p><small>{t[3]}</small></div><b>→</b></button>)}</div><div className="tip-card"><span>💡</span><div><b>不知道用哪个工具？</b><p>直接粘贴你的文字，妙笔会自动识别问题并推荐最合适的处理方式。</p></div><button onClick={()=>setTool("智能诊断")}>智能诊断</button></div></div>;
 }
@@ -777,7 +803,7 @@ function UpdatesPanel() {
   return <div className="page updates-panel"><div className="updates-panel-head"><span>CHANGELOG · 公开记录</span><h1>妙笔AI 更新日志</h1><p>每次正式上线都记录新增功能、体验改进和问题修复，所有访客都能查看。</p><a href="/updates">打开可分享的独立更新页 →</a></div><div className="updates-panel-list">{changelog.map(entry => <article className={entry.current ? "current" : ""} key={entry.version}><div><b>{entry.version}</b><time>{entry.date}</time>{entry.current && <span>当前版本</span>}</div><section><h2>{entry.title}</h2><p>{entry.summary}</p><ul>{entry.highlights.slice(0, 4).map(item => <li key={item}>{item}</li>)}</ul>{!!entry.fixes?.length && <details><summary>查看修复与调整</summary><ul>{entry.fixes.map(item => <li key={item}>{item}</li>)}</ul></details>}</section></article>)}</div></div>;
 }
 
-function Modal({ type, close, account, copy }: any) {
+function Modal({ type, close, account, copy, switchTo, requestDeletion, deletingAccount }: any) {
   const payment = manualPayment();
   const staticMode = isStaticMode();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -885,6 +911,7 @@ function Modal({ type, close, account, copy }: any) {
         </div>
         {!account.signedIn && <a className="signin-button" href={account.signInPath || (staticMode ? "/login" : "/signin-with-chatgpt?return_to=%2F")}>{staticMode ? "登录 / 注册国内版账号" : "使用 ChatGPT 安全登录"}</a>}
         {account.isAdmin && <a className="profile-row" href="/admin">进入站长运营后台与 DeepSeek 设置 <span>→</span></a>}
+        {account.signedIn && <button className="profile-row danger" onClick={() => switchTo("deleteAccount")}>注销账号与删除我的数据 <span>→</span></button>}
       </>}
       {type === "legal" && <div className="legal-content">
         <span className="modal-icon">§</span><h2>服务、隐私与退款说明</h2><p className="legal-updated">更新日期：2026 年 7 月 28 日</p>
@@ -894,6 +921,15 @@ function Modal({ type, close, account, copy }: any) {
         <section><h3>人工收款与开通</h3><p>微信、支付宝个人码没有自动支付回调。付款前应确认套餐并保留支付记录，站长核对金额、付款时间和登录邮箱后在运营后台人工开通；不要只凭截图认定到账。</p></section>
         <section><h3>退款处理</h3><p>重复付款、金额错误或付款后未开通权益，可核对到账记录后原路退款；已开通并使用的服务，按未使用天数或未消费权益协商处理。退款与开通均保留操作记录。</p></section>
         <section><h3>联系站长</h3><p>请通过部署方在站点中公布的联系方式联系站长。请勿发送 API Key、银行卡密码、验证码或其他敏感凭据。</p></section>
+      </div>}
+      {type === "deleteAccount" && <div className="legal-content delete-confirm">
+        <span className="modal-icon">⚠</span><h2>注销账号</h2>
+        <p>注销后将<strong>立即删除</strong>你在本站的生成记录、额度记录、会员权益与站内账号信息，且不可恢复；你在第三方登录平台（如 ChatGPT）的账号不受影响。涉及人工收款的订单记录按法规要求保留。</p>
+        <p>如确定注销，请点击下方按钮；也可以先<a href="/privacy" target="_blank" rel="noreferrer">查看隐私政策</a>了解数据处理细节。</p>
+        <div className="share-actions">
+          <button onClick={() => switchTo("profile")}>返回我的账号</button>
+          <button className="danger" disabled={deletingAccount} onClick={requestDeletion}>{deletingAccount ? "正在注销…" : "确认注销并删除数据"}</button>
+        </div>
       </div>}
     </div>
   </div>;

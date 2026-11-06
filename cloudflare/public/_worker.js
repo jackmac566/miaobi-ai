@@ -1075,6 +1075,22 @@ async function adminMembers(request, env) {
   });
 }
 
+async function deleteAccountRoute(request, env) {
+  const session = await readSession(request, env);
+  if (!session) return json({ error: "请先登录后再注销账号" }, 401);
+  if (session.role === "admin") return json({ error: "站长账号不能注销；请先在后台更换站长邮箱" }, 403);
+  const email = session.email;
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM generations WHERE user_email = ?").bind(email),
+    env.DB.prepare("DELETE FROM usage_windows WHERE user_key = ?").bind(email),
+    env.DB.prepare("DELETE FROM local_credentials WHERE email = ?").bind(email),
+    env.DB.prepare("DELETE FROM users WHERE email = ?").bind(email),
+  ]);
+  return json({ ok: true, deleted: true }, 200, {
+    "Set-Cookie": "miaobi_session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
+  });
+}
+
 async function workerFetch(request, env) {
   const url = new URL(request.url);
   if (!env.DB) return json({ error: "D1 数据库未绑定" }, 503);
@@ -1085,6 +1101,7 @@ async function workerFetch(request, env) {
     if (["/api/auth/login", "/api/auth/register", "/api/auth/logout"].includes(url.pathname)) {
       return authRoute(request, env, url.pathname);
     }
+    if (url.pathname === "/api/account/delete" && request.method === "DELETE") return deleteAccountRoute(request, env);
     if (url.pathname === "/api/deploy-check") return deployCheckRoute(request, env);
     if (url.pathname === "/api/admin/overview" && request.method === "GET") return adminOverview(request, env);
     if (url.pathname === "/api/admin/members") return adminMembers(request, env);

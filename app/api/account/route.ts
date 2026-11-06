@@ -75,3 +75,25 @@ export async function GET(request: Request) {
     signInPath: "/signin-with-chatgpt?return_to=%2F",
   });
 }
+
+/**
+ * 注销账号与删除数据：
+ * 删除生成记录、每日用量、滚动额度窗口和站内账号信息。
+ * 订单记录（财务凭证）与站长审计日志按法规保留，不随注销删除。
+ */
+export async function DELETE(request: Request) {
+  const config = await runtimeEnv();
+  await ensureSchema(config.DB);
+  const user = requestUser(request);
+  if (!user) return json({ error: "请先登录后再注销账号" }, 401);
+  if (await hasAdminAccess(user.email, config)) {
+    return json({ error: "站长账号不能注销；请先在运营后台更换站长邮箱" }, 403);
+  }
+  await config.DB.batch([
+    config.DB.prepare("DELETE FROM generations WHERE user_email = ?").bind(user.email),
+    config.DB.prepare("DELETE FROM daily_usage WHERE user_email = ?").bind(user.email),
+    config.DB.prepare("DELETE FROM usage_windows WHERE user_key = ?").bind(user.email),
+    config.DB.prepare("DELETE FROM users WHERE email = ?").bind(user.email),
+  ]);
+  return json({ ok: true, deleted: true });
+}

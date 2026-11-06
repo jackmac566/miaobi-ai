@@ -10,5 +10,5 @@
     <button class="primary" loading="{{loading}}" bindtap="generate">{{loading ? "正在生成…" : "生成 3 个版本"}}</button>
     <view wx:if="{{error}}" class="error">{{error}}</view>
   </view>
-  <view wx:for="{{results}}" wx:key="index" class="glass result"><view class="result-title row between"><text>版本 {{index + 1}}</text><text class="pill" data-content="{{item}}" bindtap="copy">复制</text></view><view class="result-content">{{item}}</view></view>
+  <view wx:for="{{results}}" wx:key="index" class="glass result"><view class="result-title row between"><view class="row"><text>版本 {{index + 1}}</text><text class="ai-badge">AI 生成</text></view><text class="pill" data-content="{{item}}" bindtap="copy">复制</text></view><view class="result-content">{{item}}</view></view>
 </view>

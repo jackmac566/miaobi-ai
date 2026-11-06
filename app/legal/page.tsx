@@ -40,7 +40,11 @@ export default function LegalPage() {
             </article>
           ))}
         </section>
-        <footer>妙笔AI · 规则公开，人工核对</footer>
+        <footer className="legal-links">
+          <Link href="/privacy">隐私政策</Link>
+          <Link href="/terms">用户协议</Link>
+          <Link href="/updates">更新日志</Link>
+        </footer>
       </main>
     </>
   );
