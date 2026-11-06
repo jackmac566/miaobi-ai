@@ -246,11 +246,36 @@ async function waitForPage(url, deployCheckSecret) {
         healthResponse.json().catch(() => null),
         deepSeekResponse.json().catch(() => null),
       ]);
-      const bundlePaths = [...html.matchAll(/<script[^>]+src=["']([^"']+\.js(?:\?[^"']*)?)["']/gi)].map(match => match[1]);
-      const bundleTexts = await Promise.all(bundlePaths.map(async source => {
+      const scriptSources = [...html.matchAll(/<script[^>]+src=["']([^"']+\.js(?:\?[^"']*)?)["']/gi)].map(match => match[1]);
+      const preloadSources = [...html.matchAll(/<link[^>]+>/gi)]
+        .map(tag => tag[0])
+        .filter(tag => /rel\s*=\s*["'][^"']*modulepreload/.test(tag))
+        .map(tag => tag.match(/href\s*=\s*["']([^"']+\.js(?:\?[^"']*)?)["']/i)?.[1])
+        .filter(Boolean);
+      const bundlePaths = [...new Set([...scriptSources, ...preloadSources])];
+      const fetchBundle = async source => {
         const response = await fetch(new URL(source, url), { redirect: "follow", cache: "no-store" });
         return response.ok ? response.text() : "";
-      }));
+      };
+      const fetched = [];
+      for (const source of bundlePaths) {
+        fetched.push([source, await fetchBundle(source)]);
+      }
+      // 懒加载分块不会出现在 HTML 的 script/link 里，而是写在入口包的动态 import 中
+      // （vite 用反引号模板串 import(`./page-xxx.js`)）；再抓一层，确保版本号所在的
+      // 分块也能被验收读到。相对路径按它所在的来源包地址解析，避免被同级的
+      // payment-config.js 等非 assets 脚本带偏目录。
+      const nestedPaths = new Set();
+      for (const [source, text] of fetched) {
+        for (const match of text.matchAll(/[`"'](\/?assets\/[^`"']+\.js|\.\/[A-Za-z0-9_-]+\.js)[`"']/g)) {
+          const resolved = new URL(match[1], new URL(source, url)).pathname;
+          if (!bundlePaths.includes(resolved) && !fetched.some(([existing]) => existing === resolved)) {
+            nestedPaths.add(resolved);
+          }
+        }
+      }
+      const nestedTexts = await Promise.all([...nestedPaths].map(fetchBundle));
+      const bundleTexts = [...fetched.map(([, text]) => text), ...nestedTexts];
       const pageReady = pageResponse.ok && html.includes("妙笔AI") && html.includes("DeepSeek") && html.includes("payment-config.js");
       const paymentDisabled = /enabled\s*:\s*false/.test(paymentConfig);
       const paymentMethodsReady = paymentConfig.includes("wechat") && paymentConfig.includes("alipay");
