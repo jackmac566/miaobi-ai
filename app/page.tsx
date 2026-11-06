@@ -61,9 +61,15 @@ declare global {
 
 const isStaticMode = () => typeof window !== "undefined" && window.__MIAOBI_STATIC_MODE__ === true;
 const DEFAULT_MANUAL_PAYMENT: ManualPayment = {
+  // 国内站人工收款：把收款码图片放入 public/payment/wechat.png 与 alipay.png 后
+  // 把 enabled 改为 true、在 methods 中启用对应条目，并填写联系方式
+  // （图片路径已被 .gitignore 排除，切勿提交到公开仓库）。
   enabled: false,
   contact: "",
   note: "",
+  // 付款方式示例（放好图片后取消注释）：
+  // { id: "wechat", name: "微信支付", qr: "/payment/wechat.png", crop: "wechat" },
+  // { id: "alipay", name: "支付宝", qr: "/payment/alipay.png", crop: "alipay" },
   methods: [],
 };
 const manualPayment = () => typeof window !== "undefined" ? (window.__MIAOBI_PAYMENT__ || DEFAULT_MANUAL_PAYMENT) : DEFAULT_MANUAL_PAYMENT;

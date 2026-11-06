@@ -10,11 +10,23 @@ export type ChangelogEntry = {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "V1.5.2",
+    date: "2026-11-06",
+    title: "后台模型设置：多模型切换、同步与验证",
+    summary: "运营后台新增模型设置，可在多个 DeepSeek 模型间切换、同步可用列表并进行真实接口验证。",
+    current: true,
+    highlights: [
+      "运营后台新增“模型设置”：可在 V4 Flash / V4 Pro / Chat / Reasoner 等模型间切换，保存后立即生效。",
+      "支持“同步可用模型”：读取你 DeepSeek 密钥下实际可用的模型列表，一键加入下拉选项。",
+      "支持“测试当前选择”：后台用真实接口调用验证所选模型，返回实际响应模型名。",
+    ],
+  },
+  {
     version: "V1.5.1",
     date: "2026-11-06",
     title: "官网安装、自动更新与账号注销",
     summary: "开通官网安装渠道，新增自动更新检测、账号注销与独立隐私政策、用户协议，并落实 AI 生成内容显式标识。",
-    current: true,
+    current: false,
     highlights: [
       "首页新增“安装到桌面”入口：支持 Chrome/Edge/Android 一键安装，iOS 提供添加到主屏幕图文指引。",
       "新增自动更新检测：页面每 60 秒核对服务端版本，新版本发布后提示一键刷新，避免用户停留在旧版。",

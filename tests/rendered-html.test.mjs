@@ -46,7 +46,7 @@ test("PWA shell is installable without caching account or admin APIs", async () 
   ]);
   assert.match(serviceWorker, /pathname\.startsWith\(\"\/api\/\"\)/);
   assert.match(serviceWorker, /pathname\.startsWith\(\"\/admin\"\)/);
-  assert.match(staticServiceWorker, /miaobi-shell-v1\.5\.0/);
+  assert.match(staticServiceWorker, /miaobi-shell-v1\.5\.2/);
   assert.deepEqual(JSON.parse(manifest).icons.map(icon => icon.sizes), ["192x192", "512x512"]);
   assert.match(staticPayment, /enabled:\s*false/);
   assert.match(staticPayment, /methods:\s*\[\]/);

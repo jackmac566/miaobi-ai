@@ -4,7 +4,7 @@
 
 [在线演示](https://ai-copywriting-assistant.maxc565.chatgpt.site/) · [公开更新日志](https://ai-copywriting-assistant.maxc565.chatgpt.site/updates)
 
-> 当前开源版本：V1.5.1<br>
+> 当前开源版本：V1.5.2<br>
 > 生成服务：DeepSeek V4，仅由服务端调用；API Key 不进入浏览器或小程序源码。
 
 ## 主要功能

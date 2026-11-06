@@ -541,3 +541,10 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .legal-links a{color:#c85c4a;font-size:14px;text-decoration:none}
 .legal-links a:hover{text-decoration:underline}
 @media(max-width:760px){.top-install{height:36px;font-size:11px;padding:0 10px}.update-banner{left:10px;right:10px;transform:none;justify-content:center;flex-wrap:wrap}.legal-page-shell .legal-page-grid article{padding:16px 4px}}
+
+/* —— 后台模型设置（V1.5.2）—— */
+.domestic-ai-settings{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:14px 0}
+.domestic-ai-settings select{height:40px;min-width:220px;border:1px solid #ead9d0;border-radius:12px;background:#fff;padding:0 12px;color:#5e5550;font-size:13px}
+.domestic-ai-settings button{height:40px;border:1px solid #efd9cd;background:#fff;border-radius:12px;padding:0 14px;color:#c06a55;font-size:13px}
+.domestic-ai-settings button:disabled{opacity:.55;cursor:wait}
+@media(max-width:760px){.domestic-ai-settings select{min-width:100%}.domestic-ai-settings button{flex:1}}

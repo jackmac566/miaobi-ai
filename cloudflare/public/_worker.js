@@ -1,4 +1,4 @@
-const VERSION = "V1.5.1";
+const VERSION = "V1.5.2";
 const FREE_LIMIT = 10;
 const MEMBER_LIMIT = 100;
 const WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -182,6 +182,11 @@ async function ensureSchema(db) {
       target TEXT NOT NULL,
       detail TEXT NOT NULL,
       created_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS site_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
     )`),
     db.prepare("CREATE INDEX IF NOT EXISTS generations_user_created_idx ON generations(user_email, created_at)"),
     db.prepare("CREATE INDEX IF NOT EXISTS generations_model_created_idx ON generations(model, created_at)"),
@@ -602,6 +607,160 @@ ${body.tool ? `输出偏好：${controls.preference}\n输出偏好执行规则�
 9. 只输出合法 JSON 对象 {"versions":["完整成品"]}，不要解释，不要 Markdown 代码块。`;
 }
 
+// —— 模型设置（后台可选模型、同步与验证）——
+const DEFAULT_MODEL = "deepseek-v4-flash";
+const STATIC_DEEPSEEK_MODELS = [
+  { id: "deepseek-v4-flash", label: "V4 Flash · 速度/成本优先" },
+  { id: "deepseek-v4-pro", label: "V4 Pro · 质量优先" },
+  { id: "deepseek-chat", label: "DeepSeek Chat · 通用对话" },
+  { id: "deepseek-reasoner", label: "DeepSeek Reasoner · 深度推理" },
+];
+
+let activeModelCache = { value: null, at: 0 };
+
+async function activeModel(env) {
+  const now = Date.now();
+  if (activeModelCache.value && now - activeModelCache.at < 30_000) return activeModelCache.value;
+  let model = env.DEEPSEEK_MODEL || DEFAULT_MODEL;
+  try {
+    const row = await env.DB.prepare("SELECT value FROM site_settings WHERE key = 'active_model'").first();
+    if (row?.value) model = String(row.value);
+  } catch {
+    // 表尚未就绪时回退环境变量。
+  }
+  activeModelCache = { value: model, at: now };
+  return model;
+}
+
+function clearActiveModelCache() {
+  activeModelCache = { value: null, at: 0 };
+}
+
+async function modelCatalog(env) {
+  let catalog = [...STATIC_DEEPSEEK_MODELS];
+  try {
+    const row = await env.DB.prepare("SELECT value FROM site_settings WHERE key = 'model_catalog'").first();
+    if (row?.value) {
+      const parsed = JSON.parse(String(row.value));
+      if (Array.isArray(parsed)) catalog = parsed;
+    }
+  } catch {
+    // 回退静态推荐列表。
+  }
+  return catalog;
+}
+
+async function syncDeepSeekModels(env) {
+  if (!env.DEEPSEEK_API_KEY) throw new Error("DeepSeek 服务端密钥缺失，无法同步模型列表");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const response = await fetch("https://api.deepseek.com/models", {
+      headers: { Authorization: `Bearer ${env.DEEPSEEK_API_KEY}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`DeepSeek /models 返回 HTTP ${response.status}`);
+    const payload = await response.json().catch(() => null);
+    const raw = Array.isArray(payload?.data) ? payload.data : [];
+    const synced = raw
+      .map(item => ({ id: String(item.id || "").trim(), label: String(item.id || "").trim() }))
+      .filter(item => /^[a-zA-Z0-9._:~/-]{2,180}$/.test(item.id) && /deepseek/i.test(item.id))
+      .filter((item, index, all) => all.findIndex(candidate => candidate.id === item.id) === index)
+      .slice(0, 60);
+    const catalog = [...STATIC_DEEPSEEK_MODELS, ...synced.filter(item => !STATIC_DEEPSEEK_MODELS.some(known => known.id === item.id))];
+    await env.DB.prepare("INSERT INTO site_settings (key, value, updated_at) VALUES ('model_catalog', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+      .bind(JSON.stringify(catalog), Date.now()).run();
+    return catalog;
+  } catch (error) {
+    if (error?.name === "TimeoutError" || error?.name === "AbortError") throw new Error("同步模型超时，请重试");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function verifyModel(env, model) {
+  if (!env.DEEPSEEK_API_KEY) return { ok: false, error: "DeepSeek 服务端密钥缺失" };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25_000);
+  try {
+    const response = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.DEEPSEEK_API_KEY}` },
+      body: JSON.stringify({
+        model,
+        thinking: { type: "disabled" },
+        messages: [{ role: "user", content: "回复两个字：正常" }],
+        temperature: 0,
+        max_tokens: 16,
+      }),
+      signal: controller.signal,
+    });
+    if (!response.ok) return { ok: false, error: `DeepSeek 接口返回 HTTP ${response.status}，请确认模型名称与密钥权限` };
+    const payload = await response.json().catch(() => null);
+    const content = payload?.choices?.[0]?.message?.content;
+    if (typeof content !== "string" || !content.trim()) return { ok: false, error: "接口响应为空，模型可能不可用" };
+    return { ok: true, resolvedModel: payload.model || model };
+  } catch (error) {
+    return { ok: false, error: error?.name === "TimeoutError" || error?.name === "AbortError" ? "验证超时，请重试" : "网络错误，请重试" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function adminAISettings(request, env) {
+  const admin = await requireAdmin(request, env);
+  if (!admin) return json({ error: "请先以站长身份登录" }, 401);
+  if (request.method === "GET") {
+    const model = await activeModel(env);
+    const catalog = await modelCatalog(env);
+    return json({
+      configured: Boolean(env.DEEPSEEK_API_KEY),
+      model,
+      defaultModel: DEFAULT_MODEL,
+      models: catalog,
+      source: catalog.some(item => item.id === model) ? "后台设置" : "环境变量",
+    });
+  }
+  if (request.method === "POST") {
+    const body = await request.json().catch(() => null);
+    const action = String(body?.action || "");
+    if (action === "sync_models") {
+      try {
+        const models = await syncDeepSeekModels(env);
+        return json({ ok: true, models });
+      } catch (error) {
+        return json({ error: error instanceof Error ? error.message : "同步失败" }, 502);
+      }
+    }
+    if (action === "verify") {
+      const model = String(body?.model || "").trim() || (await activeModel(env));
+      const result = await verifyModel(env, model);
+      return result.ok
+        ? json({ ok: true, resolvedModel: result.resolvedModel })
+        : json({ ok: false, error: result.error }, 502);
+    }
+    if (action === "set_model") {
+      const model = String(body?.model || "").trim();
+      const catalog = await modelCatalog(env);
+      const known = STATIC_DEEPSEEK_MODELS.some(item => item.id === model) || catalog.some(item => item.id === model);
+      if (!/^[a-zA-Z0-9._:~/-]{2,180}$/.test(model) || !known) {
+        return json({ error: "该模型不在可用列表，请先从推荐列表选择或同步可用模型" }, 400);
+      }
+      const now = Date.now();
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO site_settings (key, value, updated_at) VALUES ('active_model', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(model, now),
+        env.DB.prepare("INSERT INTO admin_audit (id, actor_email, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+          .bind(crypto.randomUUID(), admin.email, "model_change", model, "后台切换生成模型", now),
+      ]);
+      clearActiveModelCache();
+      return json({ ok: true, model });
+    }
+    return json({ error: "不支持的操作" }, 400);
+  }
+  return json({ error: "接口不存在" }, 404);
+}
+
 async function accountResponse(request, env) {
   const session = await readSession(request, env);
   const key = session?.email || await visitorKey(request);
@@ -624,7 +783,7 @@ async function accountResponse(request, env) {
     aiOperational: Boolean(env.DEEPSEEK_API_KEY),
     aiProvider: "deepseek",
     aiProviderLabel: "DeepSeek",
-    aiModel: env.DEEPSEEK_MODEL || "deepseek-v4-flash",
+    aiModel: await activeModel(env),
     generationMode: "deepseek",
     signInPath: session ? null : "/login",
   });
@@ -710,7 +869,7 @@ async function deployCheckRoute(request, env) {
     return json({ error: "接口不存在" }, 404);
   }
   if (!env.DEEPSEEK_API_KEY) return json({ ok: false, error: "DeepSeek 服务端密钥缺失" }, 503);
-  const model = env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+  const model = await activeModel(env);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 25000);
   try {
@@ -793,7 +952,7 @@ async function generateRoute(request, env) {
 
   const count = body?.tool ? 1 : member ? Math.min(6, Math.max(3, Number(body?.versionCount) || 6)) : 3;
   const controls = appliedControls(body);
-  const model = env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+  const model = await activeModel(env);
   const basePrompt = writingPrompt(body, count);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 38000);
@@ -972,7 +1131,7 @@ async function adminOverview(request, env) {
     },
     systems: {
       deepSeekConfigured: Boolean(env.DEEPSEEK_API_KEY),
-      model: env.DEEPSEEK_MODEL || "deepseek-v4-flash",
+      model: await activeModel(env),
       database: true,
       rollingWindowHours: 24,
       freeLimit: FREE_LIMIT,
@@ -1105,13 +1264,14 @@ async function workerFetch(request, env) {
     if (url.pathname === "/api/deploy-check") return deployCheckRoute(request, env);
     if (url.pathname === "/api/admin/overview" && request.method === "GET") return adminOverview(request, env);
     if (url.pathname === "/api/admin/members") return adminMembers(request, env);
+    if (url.pathname === "/api/admin/ai-settings") return adminAISettings(request, env);
     if (url.pathname === "/api/health" && request.method === "GET") {
       return json({
         ok: Boolean(env.DEEPSEEK_API_KEY),
         release: VERSION,
         database: true,
         deepSeekConfigured: Boolean(env.DEEPSEEK_API_KEY),
-        model: env.DEEPSEEK_MODEL || "deepseek-v4-flash",
+        model: await activeModel(env),
         freeLimit: FREE_LIMIT,
         windowHours: 24,
       });

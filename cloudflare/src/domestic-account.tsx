@@ -101,6 +101,11 @@ export function DomesticAdmin() {
   const [amount, setAmount] = useState(19.9);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [ai, setAi] = useState<{ configured: boolean; model: string; defaultModel: string; source: string; models: Array<{ id: string; label: string }> } | null>(null);
+  const [aiModel, setAiModel] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMessage, setAiMessage] = useState("");
+  const [aiError, setAiError] = useState("");
 
   const load = async () => {
     try {
@@ -159,6 +164,78 @@ export function DomesticAdmin() {
   const logout = async () => {
     await api("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     location.href = "/";
+  };
+
+  const loadAI = async () => {
+    try {
+      const result = await api<{ configured: boolean; model: string; defaultModel: string; source: string; models: Array<{ id: string; label: string }>; error?: string }>("/api/admin/ai-settings");
+      setAi(result);
+      setAiModel(result.model);
+    } catch {
+      setAiError("模型设置读取失败，稍后重试");
+    }
+  };
+
+  useEffect(() => {
+    const starter = setTimeout(loadAI, 0);
+    return () => clearTimeout(starter);
+  }, []);
+
+  const saveModel = async () => {
+    setAiBusy(true);
+    setAiMessage("");
+    setAiError("");
+    try {
+      const result = await api<{ ok?: boolean; error?: string; model?: string }>("/api/admin/ai-settings", {
+        method: "POST",
+        body: JSON.stringify({ action: "set_model", model: aiModel }),
+      });
+      setAiMessage(`已切换到 ${result.model}，生成接口立即生效。`);
+      setAi(previous => previous ? { ...previous, model: result.model || aiModel } : previous);
+    } catch (next) {
+      setAiError(next instanceof Error ? next.message : "切换模型失败");
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const syncModels = async () => {
+    setAiBusy(true);
+    setAiMessage("");
+    setAiError("");
+    try {
+      const result = await api<{ ok?: boolean; error?: string; models?: Array<{ id: string; label: string }> }>("/api/admin/ai-settings", {
+        method: "POST",
+        body: JSON.stringify({ action: "sync_models" }),
+      });
+      if (result.models?.length) {
+        setAi(previous => previous ? { ...previous, models: result.models || previous.models } : previous);
+        setAiMessage(`已同步 ${result.models.length} 个可用模型。`);
+      } else {
+        setAiMessage("同步完成。");
+      }
+    } catch (next) {
+      setAiError(next instanceof Error ? next.message : "同步模型失败");
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const verifyCurrent = async () => {
+    setAiBusy(true);
+    setAiMessage("");
+    setAiError("");
+    try {
+      const result = await api<{ ok?: boolean; error?: string; resolvedModel?: string }>("/api/admin/ai-settings", {
+        method: "POST",
+        body: JSON.stringify({ action: "verify", model: aiModel }),
+      });
+      setAiMessage(`验证通过，接口响应模型 ${result.resolvedModel || aiModel}。`);
+    } catch (next) {
+      setAiError(next instanceof Error ? next.message : "验证失败");
+    } finally {
+      setAiBusy(false);
+    }
   };
 
   const markRefunded = async (orderId: string, targetEmail: string) => {
@@ -232,6 +309,22 @@ export function DomesticAdmin() {
           <div><dt>额度规则</dt><dd>每个窗口首次使用后 24 小时重置</dd></div>
         </dl>
       </article>
+    </section>
+
+    <section className="domestic-admin-panel">
+      <div className="domestic-admin-heading"><div><h2>模型设置</h2><p>选择 DeepSeek 生成模型并测试；“同步可用模型”会读取你密钥下实际可用的模型列表。切换后立即生效，不影响已配置的密钥与额度规则。</p></div>{ai && <span>当前：{ai.model}（{ai.source}）</span>}</div>
+      {ai ? (
+        <div className="domestic-ai-settings">
+          <select value={aiModel} onChange={event => setAiModel(event.target.value)} aria-label="生成模型">
+            {(ai.models || []).map(item => <option key={item.id} value={item.id}>{item.label || item.id}</option>)}
+          </select>
+          <button disabled={aiBusy} onClick={saveModel}>保存并切换</button>
+          <button disabled={aiBusy} onClick={syncModels}>同步可用模型</button>
+          <button disabled={aiBusy} onClick={verifyCurrent}>测试当前选择</button>
+        </div>
+      ) : <p>正在读取模型设置…</p>}
+      {aiMessage && <p className="domestic-admin-success">✓ {aiMessage}</p>}
+      {aiError && <p className="domestic-login-error" role="alert">{aiError}</p>}
     </section>
 
     <section className="domestic-admin-panel">
