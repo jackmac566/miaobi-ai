@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
+import { VERSION } from "../../lib/version";
 
 type APIResult = { error?: string };
+
+type AISettingsPayload = APIResult & {
+  providers: Array<{ id: string; label: string; shortLabel: string; defaultModel: string; docsUrl: string; syncable: boolean; models: Array<{ id: string; label: string }> }>;
+  activeProvider: string;
+  activeModel: string;
+  hasKeys: Record<string, boolean>;
+  source: string;
+};
 
 async function api<T extends APIResult = APIResult>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -84,7 +93,7 @@ type Overview = {
     revenueFen: number;
     memberConversion: number;
   };
-  systems: { deepSeekConfigured: boolean; model: string; database: boolean; rollingWindowHours: number; freeLimit: number; memberLimit: number; siteLimit: number };
+  systems: { deepSeekConfigured: boolean; provider: string; providerLabel: string; providerShortLabel: string; providerKeyConfigured: boolean; model: string; database: boolean; rollingWindowHours: number; freeLimit: number; memberLimit: number; siteLimit: number };
   users: Array<{ email: string; display_name: string | null; plan: string; plan_expires_at: number | null; last_seen_at: number }>;
   orders: Array<{ id: string; user_email: string; product: string; amount_fen: number; status: string; provider_trade_no: string; created_at: number; paid_at: number | null }>;
   audit: Array<{ actor_email: string; action: string; target: string; detail: string; created_at: number }>;
@@ -101,11 +110,15 @@ export function DomesticAdmin() {
   const [amount, setAmount] = useState(19.9);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [ai, setAi] = useState<{ configured: boolean; model: string; defaultModel: string; source: string; models: Array<{ id: string; label: string }> } | null>(null);
+  const [ai, setAi] = useState<AISettingsPayload | null>(null);
+  const [aiProvider, setAiProvider] = useState("");
   const [aiModel, setAiModel] = useState("");
+  const [keyValue, setKeyValue] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMessage, setAiMessage] = useState("");
   const [aiError, setAiError] = useState("");
+  const [updating, setUpdating] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState("");
 
   const load = async () => {
     try {
@@ -168,9 +181,11 @@ export function DomesticAdmin() {
 
   const loadAI = async () => {
     try {
-      const result = await api<{ configured: boolean; model: string; defaultModel: string; source: string; models: Array<{ id: string; label: string }>; error?: string }>("/api/admin/ai-settings");
+      const result = await api<AISettingsPayload>("/api/admin/ai-settings");
       setAi(result);
-      setAiModel(result.model);
+      setAiProvider(result.activeProvider);
+      setAiModel(result.activeModel);
+      setKeyValue("");
     } catch {
       setAiError("模型设置读取失败，稍后重试");
     }
@@ -180,6 +195,37 @@ export function DomesticAdmin() {
     const starter = setTimeout(loadAI, 0);
     return () => clearTimeout(starter);
   }, []);
+
+  const activeProviderInfo = ai?.providers.find(item => item.id === aiProvider) || null;
+  const activeProviderModels = activeProviderInfo?.models || [];
+
+  const chooseProvider = (next: string) => {
+    setAiProvider(next);
+    const info = ai?.providers.find(item => item.id === next);
+    setAiModel(info?.defaultModel || "");
+    setKeyValue("");
+    setAiMessage("");
+    setAiError("");
+  };
+
+  const saveKey = async () => {
+    setAiBusy(true);
+    setAiMessage("");
+    setAiError("");
+    try {
+      const result = await api<{ ok?: boolean; error?: string; configured?: boolean }>("/api/admin/ai-settings", {
+        method: "POST",
+        body: JSON.stringify({ action: "save_key", provider: aiProvider, apiKey: keyValue }),
+      });
+      setAi(previous => previous ? { ...previous, hasKeys: { ...previous.hasKeys, [aiProvider]: Boolean(result.configured) } } : previous);
+      setKeyValue("");
+      setAiMessage(result.configured ? `${activeProviderInfo?.label || "该提供商"} 密钥已加密保存。` : "密钥已移除。");
+    } catch (next) {
+      setAiError(next instanceof Error ? next.message : "保存密钥失败");
+    } finally {
+      setAiBusy(false);
+    }
+  };
 
   const saveModel = async () => {
     setAiBusy(true);
@@ -191,9 +237,27 @@ export function DomesticAdmin() {
         body: JSON.stringify({ action: "set_model", model: aiModel }),
       });
       setAiMessage(`已切换到 ${result.model}，生成接口立即生效。`);
-      setAi(previous => previous ? { ...previous, model: result.model || aiModel } : previous);
     } catch (next) {
       setAiError(next instanceof Error ? next.message : "切换模型失败");
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const switchProvider = async () => {
+    setAiBusy(true);
+    setAiMessage("");
+    setAiError("");
+    try {
+      const result = await api<{ ok?: boolean; error?: string; provider?: string; defaultModel?: string; label?: string }>("/api/admin/ai-settings", {
+        method: "POST",
+        body: JSON.stringify({ action: "set_provider", provider: aiProvider }),
+      });
+      setAiMessage(`已切换提供商为 ${result.label || result.provider}，默认模型 ${result.defaultModel}；请确认该提供商密钥已配置。`);
+      await load();
+      await loadAI();
+    } catch (next) {
+      setAiError(next instanceof Error ? next.message : "切换提供商失败");
     } finally {
       setAiBusy(false);
     }
@@ -206,10 +270,10 @@ export function DomesticAdmin() {
     try {
       const result = await api<{ ok?: boolean; error?: string; models?: Array<{ id: string; label: string }> }>("/api/admin/ai-settings", {
         method: "POST",
-        body: JSON.stringify({ action: "sync_models" }),
+        body: JSON.stringify({ action: "sync_models", provider: aiProvider }),
       });
       if (result.models?.length) {
-        setAi(previous => previous ? { ...previous, models: result.models || previous.models } : previous);
+        setAi(previous => previous ? { ...previous, providers: previous.providers.map(item => item.id === aiProvider ? { ...item, models: result.models || item.models } : item) } : previous);
         setAiMessage(`已同步 ${result.models.length} 个可用模型。`);
       } else {
         setAiMessage("同步完成。");
@@ -228,7 +292,7 @@ export function DomesticAdmin() {
     try {
       const result = await api<{ ok?: boolean; error?: string; resolvedModel?: string }>("/api/admin/ai-settings", {
         method: "POST",
-        body: JSON.stringify({ action: "verify", model: aiModel }),
+        body: JSON.stringify({ action: "verify", provider: aiProvider, model: aiModel }),
       });
       setAiMessage(`验证通过，接口响应模型 ${result.resolvedModel || aiModel}。`);
     } catch (next) {
@@ -236,6 +300,33 @@ export function DomesticAdmin() {
     } finally {
       setAiBusy(false);
     }
+  };
+
+  const checkUpdates = async () => {
+    setUpdating(true);
+    setUpdateMessage("");
+    try {
+      const health = await api<{ release?: string; providerLabel?: string; model?: string; error?: string }>("/api/health");
+      if (!health.release) throw new Error("未能读取线上版本");
+      setUpdateMessage(health.release === VERSION
+        ? `已是最新版本 ${VERSION}（线上一致）。`
+        : `发现新版本 ${health.release}（本站当前 ${VERSION}），请重新部署后回到本站刷新。`);
+    } catch (next) {
+      setUpdateMessage(next instanceof Error ? next.message : "检查更新失败，请稍后重试");
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const applyUpdate = () => {
+    try {
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.getRegistration().then(registration => registration?.update()).catch(() => undefined);
+      }
+    } catch {
+      // 直接刷新同样能拿到最新内容。
+    }
+    location.reload();
   };
 
   const markRefunded = async (orderId: string, targetEmail: string) => {
@@ -275,7 +366,7 @@ export function DomesticAdmin() {
       <article><span>近 24h Token</span><b>{(data.cards.promptTokens + data.cards.completionTokens).toLocaleString("zh-CN")}</b></article>
       <article><span>累计实收</span><b>¥{(data.cards.revenueFen / 100).toFixed(2)}</b></article>
       <article><span>会员转化率</span><b>{data.cards.memberConversion}%</b></article>
-      <article><span>DeepSeek</span><b className={data.systems.deepSeekConfigured ? "ok" : "bad"}>{data.systems.deepSeekConfigured ? "已配置" : "未配置"}</b></article>
+      <article><span>{data.systems.providerShortLabel || "模型"}</span><b className={data.systems.providerKeyConfigured ? "ok" : "bad"}>{data.systems.providerKeyConfigured ? "已配置" : "未配置"}</b></article>
     </section>
 
     <section className="domestic-admin-panel">
@@ -301,8 +392,8 @@ export function DomesticAdmin() {
       <article className="domestic-admin-panel">
         <h2>系统状态</h2>
         <dl className="domestic-system-list">
-          <div><dt>DeepSeek 模型</dt><dd>{data.systems.model}</dd></div>
-          <div><dt>服务端密钥</dt><dd className={data.systems.deepSeekConfigured ? "ok" : "bad"}>{data.systems.deepSeekConfigured ? "已安全配置" : "缺失，生成暂停"}</dd></div>
+          <div><dt>{data.systems.providerLabel || "模型"} · 当前模型</dt><dd>{data.systems.model}</dd></div>
+          <div><dt>服务端密钥</dt><dd className={data.systems.providerKeyConfigured ? "ok" : "bad"}>{data.systems.providerKeyConfigured ? "已安全配置" : "缺失，生成暂停"}</dd></div>
           <div><dt>D1 数据库</dt><dd className="ok">可读取</dd></div>
           <div><dt>站点总上限</dt><dd>近 24 小时 {data.systems.siteLimit} 次，当前剩余 {data.cards.siteRemaining} 次</dd></div>
           <div><dt>Token 明细</dt><dd>输入 {data.cards.promptTokens.toLocaleString("zh-CN")} / 输出 {data.cards.completionTokens.toLocaleString("zh-CN")}</dd></div>
@@ -312,19 +403,39 @@ export function DomesticAdmin() {
     </section>
 
     <section className="domestic-admin-panel">
-      <div className="domestic-admin-heading"><div><h2>模型设置</h2><p>选择 DeepSeek 生成模型并测试；“同步可用模型”会读取你密钥下实际可用的模型列表。切换后立即生效，不影响已配置的密钥与额度规则。</p></div>{ai && <span>当前：{ai.model}（{ai.source}）</span>}</div>
+      <div className="domestic-admin-heading"><div><h2>模型设置</h2><p>选择生成模型提供商与模型；密钥只保存在服务端并加密存储。没有密钥的提供商也可以先切换查看，配好密钥后点“测试当前选择”验证即可投入使用。</p></div>{ai && <span>当前：{activeProviderInfo?.label || ai.activeProvider} · {ai.activeModel}</span>}</div>
       {ai ? (
         <div className="domestic-ai-settings">
-          <select value={aiModel} onChange={event => setAiModel(event.target.value)} aria-label="生成模型">
-            {(ai.models || []).map(item => <option key={item.id} value={item.id}>{item.label || item.id}</option>)}
-          </select>
-          <button disabled={aiBusy} onClick={saveModel}>保存并切换</button>
-          <button disabled={aiBusy} onClick={syncModels}>同步可用模型</button>
-          <button disabled={aiBusy} onClick={verifyCurrent}>测试当前选择</button>
+          <label className="domestic-ai-field">提供商
+            <select value={aiProvider} onChange={event => chooseProvider(event.target.value)} aria-label="模型提供商">
+              {ai.providers.map(item => <option key={item.id} value={item.id}>{item.label}{ai.hasKeys[item.id] ? " · 已配密钥" : ""}</option>)}
+            </select>
+          </label>
+          <label className="domestic-ai-field">模型
+            <select value={aiModel} onChange={event => setAiModel(event.target.value)} aria-label="生成模型">
+              {activeProviderModels.map(item => <option key={item.id} value={item.id}>{item.label || item.id}</option>)}
+            </select>
+          </label>
+          <label className="domestic-ai-field grow">API 密钥（留空并保存 = 移除）
+            <input type="password" autoComplete="new-password" value={keyValue} onChange={event => setKeyValue(event.target.value)} placeholder={ai.hasKeys[aiProvider] ? "已加密保存，留空表示不更换" : `粘贴 ${activeProviderInfo?.label || "该提供商"} 的 API Key`} />
+          </label>
+          <div className="domestic-ai-actions">
+            <button disabled={aiBusy || !keyValue} onClick={saveKey}>保存密钥</button>
+            <button disabled={aiBusy} onClick={switchProvider}>启用此提供商</button>
+            <button disabled={aiBusy} onClick={saveModel}>保存并切换模型</button>
+            <button disabled={aiBusy} onClick={verifyCurrent}>测试当前选择</button>
+            {activeProviderInfo?.syncable && <button disabled={aiBusy} onClick={syncModels}>同步可用模型</button>}
+            {activeProviderInfo?.docsUrl && <a className="domestic-docs-link" href={activeProviderInfo.docsUrl} target="_blank" rel="noreferrer">官方文档 ↗</a>}
+          </div>
         </div>
       ) : <p>正在读取模型设置…</p>}
       {aiMessage && <p className="domestic-admin-success">✓ {aiMessage}</p>}
       {aiError && <p className="domestic-login-error" role="alert">{aiError}</p>}
+      <div className="domestic-update-check">
+        <button disabled={updating} onClick={checkUpdates}>{updating ? "正在检查…" : "检查更新"}</button>
+        <button disabled={updating} onClick={applyUpdate}>刷新本站</button>
+        {updateMessage && <p className="domestic-admin-success">✓ {updateMessage}</p>}
+      </div>
     </section>
 
     <section className="domestic-admin-panel">

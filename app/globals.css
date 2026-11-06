@@ -548,3 +548,25 @@ button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible,
 .domestic-ai-settings button{height:40px;border:1px solid #efd9cd;background:#fff;border-radius:12px;padding:0 14px;color:#c06a55;font-size:13px}
 .domestic-ai-settings button:disabled{opacity:.55;cursor:wait}
 @media(max-width:760px){.domestic-ai-settings select{min-width:100%}.domestic-ai-settings button{flex:1}}
+
+/* —— 后台模型设置（多提供商）与手动检查更新（V1.5.3）—— */
+.domestic-ai-settings{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin:14px 0}
+.domestic-ai-field{display:grid;gap:6px;font-size:12px;color:#8b7d76}
+.domestic-ai-field select,.domestic-ai-field input{height:40px;min-width:200px;border:1px solid #ead9d0;border-radius:12px;background:#fff;padding:0 12px;color:#5e5550;font-size:13px}
+.domestic-ai-field.grow{flex:1;min-width:240px}
+.domestic-ai-field.grow input{width:100%}
+.domestic-ai-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.domestic-ai-actions button{height:40px;border:1px solid #efd9cd;background:#fff;border-radius:12px;padding:0 14px;color:#c06a55;font-size:13px}
+.domestic-ai-actions button:disabled{opacity:.55;cursor:wait}
+.domestic-docs-link{color:#c06a55;font-size:13px;text-decoration:none}
+.domestic-docs-link:hover{text-decoration:underline}
+.domestic-update-check{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid #f1e6e0}
+.domestic-update-check button{height:38px;border:1px solid #efd9cd;background:#fff;border-radius:12px;padding:0 14px;color:#7a6a63;font-size:13px}
+.domestic-update-check button:first-child{border-color:#ff9c85;color:#c8473c;font-weight:700}
+.domestic-update-check button:disabled{opacity:.55;cursor:wait}
+.domestic-update-check p{margin:0;font-size:13px}
+@media(max-width:760px){.domestic-ai-field,.domestic-ai-field.grow{min-width:100%}.domestic-ai-actions button{flex:1}}
+
+/* —— 手动检查更新（V1.5.3）—— */
+.payment-methods{display:flex!important;justify-content:center;flex-wrap:wrap}
+.payment-methods button{min-width:128px}

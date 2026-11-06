@@ -1,4 +1,4 @@
-const VERSION = "V1.5.2";
+const VERSION = "V1.5.3";
 const FREE_LIMIT = 10;
 const MEMBER_LIMIT = 100;
 const WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -185,6 +185,11 @@ async function ensureSchema(db) {
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS site_settings (
       key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS provider_keys (
+      provider TEXT PRIMARY KEY,
       value TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     )`),
@@ -607,39 +612,149 @@ ${body.tool ? `输出偏好：${controls.preference}\n输出偏好执行规则�
 9. 只输出合法 JSON 对象 {"versions":["完整成品"]}，不要解释，不要 Markdown 代码块。`;
 }
 
-// —— 模型设置（后台可选模型、同步与验证）——
-const DEFAULT_MODEL = "deepseek-v4-flash";
-const STATIC_DEEPSEEK_MODELS = [
-  { id: "deepseek-v4-flash", label: "V4 Flash · 速度/成本优先" },
-  { id: "deepseek-v4-pro", label: "V4 Pro · 质量优先" },
-  { id: "deepseek-chat", label: "DeepSeek Chat · 通用对话" },
-  { id: "deepseek-reasoner", label: "DeepSeek Reasoner · 深度推理" },
+// —— 模型设置（多家提供商、密钥加密存储、切换与验证）——
+const DEFAULT_PROVIDER_ID = "deepseek";
+const PROVIDERS = [
+  { id: "deepseek", label: "DeepSeek", shortLabel: "DeepSeek", baseUrl: "https://api.deepseek.com/chat/completions", modelsEndpoint: "https://api.deepseek.com/models", defaultModel: "deepseek-v4-flash", thinkingToggle: true, jsonMode: true, docsUrl: "https://api-docs.deepseek.com/", models: [
+    { id: "deepseek-v4-flash", label: "V4 Flash · 速度/成本优先" },
+    { id: "deepseek-v4-pro", label: "V4 Pro · 质量优先" },
+    { id: "deepseek-chat", label: "DeepSeek Chat · 通用对话" },
+    { id: "deepseek-reasoner", label: "DeepSeek Reasoner · 深度推理" },
+  ] },
+  { id: "openai", label: "OpenAI GPT", shortLabel: "GPT", baseUrl: "https://api.openai.com/v1/chat/completions", modelsEndpoint: "https://api.openai.com/v1/models", defaultModel: "gpt-4o-mini", jsonMode: true, docsUrl: "https://platform.openai.com/docs/", models: [
+    { id: "gpt-4o-mini", label: "GPT-4o mini · 快/省" },
+    { id: "gpt-4o", label: "GPT-4o · 均衡" },
+    { id: "gpt-4.1-mini", label: "GPT-4.1 mini" },
+    { id: "gpt-4.1", label: "GPT-4.1" },
+  ] },
+  { id: "claude", label: "Anthropic Claude", shortLabel: "Claude", baseUrl: "https://api.anthropic.com/v1/chat/completions", modelsEndpoint: null, defaultModel: "claude-sonnet-4-20250514", jsonMode: false, docsUrl: "https://docs.anthropic.com/", models: [
+    { id: "claude-sonnet-4-20250514", label: "Claude Sonnet 4 · 推荐" },
+    { id: "claude-haiku-4-20250514", label: "Claude Haiku 4 · 快/省" },
+    { id: "claude-opus-4-20250514", label: "Claude Opus 4 · 最强" },
+  ] },
+  { id: "qwen", label: "通义千问", shortLabel: "千问", baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", modelsEndpoint: null, defaultModel: "qwen-plus", jsonMode: true, docsUrl: "https://help.aliyun.com/zh/model-studio/", models: [
+    { id: "qwen-turbo", label: "Qwen Turbo · 快/省" },
+    { id: "qwen-plus", label: "Qwen Plus · 均衡" },
+    { id: "qwen-max", label: "Qwen Max · 强" },
+    { id: "qwen-long", label: "Qwen Long · 长文" },
+  ] },
+  { id: "doubao", label: "豆包（火山方舟）", shortLabel: "豆包", baseUrl: "https://ark.cn-beijing.volces.com/api/v3/chat/completions", modelsEndpoint: null, defaultModel: "doubao-seed-1-6-250615", jsonMode: true, docsUrl: "https://www.volcengine.com/docs/82379", models: [
+    { id: "doubao-seed-1-6-250615", label: "Doubao Seed 1.6 · 推荐" },
+    { id: "doubao-1-5-pro-32k-250115", label: "Doubao 1.5 Pro 32K" },
+    { id: "doubao-lite-32k-240828", label: "Doubao Lite · 快/省" },
+  ] },
+  { id: "minimax", label: "MiniMax", shortLabel: "MiniMax", baseUrl: "https://api.minimaxi.com/v1/chat/completions", modelsEndpoint: null, defaultModel: "MiniMax-Text-01", jsonMode: true, docsUrl: "https://platform.minimaxi.com/document/", models: [
+    { id: "MiniMax-Text-01", label: "MiniMax-Text-01 · 推荐" },
+  ] },
+  { id: "glm", label: "智谱 GLM", shortLabel: "GLM", baseUrl: "https://open.bigmodel.cn/api/paas/v4/chat/completions", modelsEndpoint: null, defaultModel: "glm-4.5", thinkingToggle: true, jsonMode: true, docsUrl: "https://open.bigmodel.cn/dev/api", models: [
+    { id: "glm-4.5", label: "GLM-4.5 · 推荐" },
+    { id: "glm-4.5-air", label: "GLM-4.5 Air · 快/省" },
+    { id: "glm-4-plus", label: "GLM-4 Plus" },
+  ] },
+  { id: "gemini", label: "Google Gemini", shortLabel: "Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", modelsEndpoint: null, defaultModel: "gemini-2.5-flash", jsonMode: false, docsUrl: "https://ai.google.dev/gemini-api/docs", models: [
+    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash · 快" },
+    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro · 强" },
+    { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
+  ] },
 ];
 
-let activeModelCache = { value: null, at: 0 };
+const PROVIDER_ENV_KEYS = {
+  deepseek: "DEEPSEEK_API_KEY",
+  openai: "OPENAI_API_KEY",
+  claude: "ANTHROPIC_API_KEY",
+  qwen: "QWEN_API_KEY",
+  doubao: "DOUBAO_API_KEY",
+  minimax: "MINIMAX_API_KEY",
+  glm: "GLM_API_KEY",
+  gemini: "GEMINI_API_KEY",
+};
+
+function getProvider(id) {
+  return PROVIDERS.find(provider => provider.id === id) || PROVIDERS[0];
+}
+
+let providerStateCache = { provider: null, at: 0 };
+
+async function activeProviderId(env) {
+  const now = Date.now();
+  if (providerStateCache.provider && now - providerStateCache.at < 30_000) return providerStateCache.provider;
+  let id = env.AI_PROVIDER || DEFAULT_PROVIDER_ID;
+  try {
+    const row = await env.DB.prepare("SELECT value FROM site_settings WHERE key = 'active_provider'").first();
+    if (row?.value && PROVIDERS.some(provider => provider.id === row.value)) id = String(row.value);
+  } catch {
+    // 表未就绪时回退环境变量或默认提供商。
+  }
+  providerStateCache.provider = id;
+  providerStateCache.at = now;
+  return id;
+}
 
 async function activeModel(env) {
-  const now = Date.now();
-  if (activeModelCache.value && now - activeModelCache.at < 30_000) return activeModelCache.value;
-  let model = env.DEEPSEEK_MODEL || DEFAULT_MODEL;
+  const provider = getProvider(await activeProviderId(env));
+  let model = provider.id === "deepseek" ? (env.DEEPSEEK_MODEL || provider.defaultModel) : provider.defaultModel;
   try {
     const row = await env.DB.prepare("SELECT value FROM site_settings WHERE key = 'active_model'").first();
     if (row?.value) model = String(row.value);
   } catch {
-    // 表尚未就绪时回退环境变量。
+    // 回退提供商默认模型。
   }
-  activeModelCache = { value: model, at: now };
+  if (!provider.models.some(item => item.id === model)) model = provider.defaultModel;
   return model;
 }
 
-function clearActiveModelCache() {
-  activeModelCache = { value: null, at: 0 };
+function clearProviderStateCache() {
+  providerStateCache = { provider: null, at: 0 };
 }
 
-async function modelCatalog(env) {
-  let catalog = [...STATIC_DEEPSEEK_MODELS];
+async function providerKeyMaterial(env) {
+  if (!env.SESSION_SECRET) return null;
+  const hmacKey = await crypto.subtle.importKey("raw", new TextEncoder().encode(String(env.SESSION_SECRET)), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const derived = await crypto.subtle.sign("HMAC", hmacKey, new TextEncoder().encode("miaobi-provider-keys-v1"));
+  return crypto.subtle.importKey("raw", new Uint8Array(derived).slice(0, 32), { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+}
+
+async function encryptProviderKey(env, plain) {
+  const key = await providerKeyMaterial(env);
+  if (!key) throw new Error("缺少 SESSION_SECRET，无法保存密钥");
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(plain));
+  return JSON.stringify({ iv: base64Url(iv), data: base64Url(new Uint8Array(cipher)) });
+}
+
+async function decryptProviderKey(env, stored) {
+  const key = await providerKeyMaterial(env);
+  if (!key) return null;
   try {
-    const row = await env.DB.prepare("SELECT value FROM site_settings WHERE key = 'model_catalog'").first();
+    const parsed = JSON.parse(stored);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: fromBase64Url(parsed.iv) }, key, fromBase64Url(parsed.data));
+    return new TextDecoder().decode(plain);
+  } catch {
+    return null;
+  }
+}
+
+async function providerApiKey(env, providerId) {
+  if (providerId === "deepseek" && env.DEEPSEEK_API_KEY) return env.DEEPSEEK_API_KEY;
+  const envName = PROVIDER_ENV_KEYS[providerId];
+  if (envName && env[envName]) return env[envName];
+  try {
+    const row = await env.DB.prepare("SELECT value FROM provider_keys WHERE provider = ?").bind(providerId).first();
+    if (row?.value) {
+      const plain = await decryptProviderKey(env, String(row.value));
+      if (plain) return plain;
+    }
+  } catch {
+    // 密钥表未就绪时按未配置处理。
+  }
+  return null;
+}
+
+async function providerCatalog(env, providerId) {
+  const provider = getProvider(providerId);
+  let catalog = [...provider.models];
+  try {
+    const row = await env.DB.prepare("SELECT value FROM site_settings WHERE key = ?").bind(`model_catalog:${providerId}`).first();
     if (row?.value) {
       const parsed = JSON.parse(String(row.value));
       if (Array.isArray(parsed)) catalog = parsed;
@@ -650,26 +765,29 @@ async function modelCatalog(env) {
   return catalog;
 }
 
-async function syncDeepSeekModels(env) {
-  if (!env.DEEPSEEK_API_KEY) throw new Error("DeepSeek 服务端密钥缺失，无法同步模型列表");
+async function syncProviderModels(env, providerId) {
+  const provider = getProvider(providerId);
+  if (!provider.modelsEndpoint) throw new Error(`${provider.label} 不提供在线模型列表接口，请使用内置推荐模型`);
+  const apiKey = await providerApiKey(env, providerId);
+  if (!apiKey) throw new Error(`${provider.label} 密钥未配置，无法同步模型列表`);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 20_000);
   try {
-    const response = await fetch("https://api.deepseek.com/models", {
-      headers: { Authorization: `Bearer ${env.DEEPSEEK_API_KEY}` },
+    const response = await fetch(provider.modelsEndpoint, {
+      headers: { Authorization: `Bearer ${apiKey}` },
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error(`DeepSeek /models 返回 HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`${provider.label} /models 返回 HTTP ${response.status}`);
     const payload = await response.json().catch(() => null);
     const raw = Array.isArray(payload?.data) ? payload.data : [];
     const synced = raw
       .map(item => ({ id: String(item.id || "").trim(), label: String(item.id || "").trim() }))
-      .filter(item => /^[a-zA-Z0-9._:~/-]{2,180}$/.test(item.id) && /deepseek/i.test(item.id))
+      .filter(item => /^[a-zA-Z0-9._:~/-]{2,180}$/.test(item.id))
       .filter((item, index, all) => all.findIndex(candidate => candidate.id === item.id) === index)
       .slice(0, 60);
-    const catalog = [...STATIC_DEEPSEEK_MODELS, ...synced.filter(item => !STATIC_DEEPSEEK_MODELS.some(known => known.id === item.id))];
-    await env.DB.prepare("INSERT INTO site_settings (key, value, updated_at) VALUES ('model_catalog', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
-      .bind(JSON.stringify(catalog), Date.now()).run();
+    const catalog = [...provider.models, ...synced.filter(item => !provider.models.some(known => known.id === item.id))];
+    await env.DB.prepare("INSERT INTO site_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+      .bind(`model_catalog:${providerId}`, JSON.stringify(catalog), Date.now()).run();
     return catalog;
   } catch (error) {
     if (error?.name === "TimeoutError" || error?.name === "AbortError") throw new Error("同步模型超时，请重试");
@@ -679,30 +797,47 @@ async function syncDeepSeekModels(env) {
   }
 }
 
-async function verifyModel(env, model) {
-  if (!env.DEEPSEEK_API_KEY) return { ok: false, error: "DeepSeek 服务端密钥缺失" };
+async function callProviderChat(env, providerId, model, options) {
+  const provider = getProvider(providerId);
+  const apiKey = await providerApiKey(env, providerId);
+  if (!apiKey) return { error: `${provider.label} 密钥未配置` };
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25_000);
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs || 38_000);
+  const body = {
+    model,
+    messages: options.messages,
+    temperature: options.temperature,
+    max_tokens: options.maxTokens,
+  };
+  if (provider.thinkingToggle) body.thinking = { type: "disabled" };
+  if (options.jsonMode !== false && provider.jsonMode) body.response_format = { type: "json_object" };
   try {
-    const response = await fetch("https://api.deepseek.com/chat/completions", {
+    const response = await fetch(provider.baseUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.DEEPSEEK_API_KEY}` },
-      body: JSON.stringify({
-        model,
-        thinking: { type: "disabled" },
-        messages: [{ role: "user", content: "回复两个字：正常" }],
-        temperature: 0,
-        max_tokens: 16,
-      }),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
-    if (!response.ok) return { ok: false, error: `DeepSeek 接口返回 HTTP ${response.status}，请确认模型名称与密钥权限` };
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 200);
+      console.error(`${providerId} rejected request`, response.status, detail);
+      return { error: `${provider.label} 返回 HTTP ${response.status}`, status: response.status };
+    }
     const payload = await response.json().catch(() => null);
     const content = payload?.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || !content.trim()) return { ok: false, error: "接口响应为空，模型可能不可用" };
-    return { ok: true, resolvedModel: payload.model || model };
+    if (typeof content !== "string" || !content.trim()) return { error: `${provider.label} 响应为空，请检查模型名称与密钥权限` };
+    return {
+      ok: true,
+      content,
+      resolvedModel: payload.model || model,
+      usage: {
+        prompt_tokens: Number(payload?.usage?.prompt_tokens || 0),
+        completion_tokens: Number(payload?.usage?.completion_tokens || 0),
+      },
+    };
   } catch (error) {
-    return { ok: false, error: error?.name === "TimeoutError" || error?.name === "AbortError" ? "验证超时，请重试" : "网络错误，请重试" };
+    console.error(`${providerId} transport failure`, error);
+    return { error: `${provider.label} 网络请求失败，请稍后重试` };
   } finally {
     clearTimeout(timer);
   }
@@ -712,55 +847,104 @@ async function adminAISettings(request, env) {
   const admin = await requireAdmin(request, env);
   if (!admin) return json({ error: "请先以站长身份登录" }, 401);
   if (request.method === "GET") {
+    const providerId = await activeProviderId(env);
     const model = await activeModel(env);
-    const catalog = await modelCatalog(env);
+    const hasKeys = {};
+    for (const provider of PROVIDERS) {
+      hasKeys[provider.id] = Boolean(await providerApiKey(env, provider.id));
+    }
     return json({
-      configured: Boolean(env.DEEPSEEK_API_KEY),
-      model,
-      defaultModel: DEFAULT_MODEL,
-      models: catalog,
-      source: catalog.some(item => item.id === model) ? "后台设置" : "环境变量",
+      providers: PROVIDERS.map(provider => ({
+        id: provider.id,
+        label: provider.label,
+        shortLabel: provider.shortLabel,
+        defaultModel: provider.defaultModel,
+        docsUrl: provider.docsUrl,
+        syncable: Boolean(provider.modelsEndpoint),
+        models: provider.models,
+      })),
+      activeProvider: providerId,
+      activeModel: model,
+      hasKeys,
+      source: "后台设置 / 环境变量",
     });
   }
   if (request.method === "POST") {
     const body = await request.json().catch(() => null);
     const action = String(body?.action || "");
+    const now = Date.now();
+    if (action === "set_provider") {
+      const providerId = String(body?.provider || "").trim();
+      if (!PROVIDERS.some(provider => provider.id === providerId)) return json({ error: "未知的模型提供商" }, 400);
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO site_settings (key, value, updated_at) VALUES ('active_provider', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(providerId, now),
+        env.DB.prepare("INSERT INTO admin_audit (id, actor_email, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+          .bind(crypto.randomUUID(), admin.email, "provider_change", providerId, "后台切换模型提供商", now),
+      ]);
+      clearProviderStateCache();
+      const provider = getProvider(providerId);
+      return json({ ok: true, provider: providerId, defaultModel: provider.defaultModel, label: provider.label });
+    }
+    if (action === "set_model") {
+      const provider = getProvider(await activeProviderId(env));
+      const model = String(body?.model || "").trim();
+      const catalog = await providerCatalog(env, provider.id);
+      if (!/^[a-zA-Z0-9._:~/-]{2,180}$/.test(model) || !catalog.some(item => item.id === model)) {
+        return json({ error: "该模型不在可用列表，请先从推荐列表选择或同步可用模型" }, 400);
+      }
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO site_settings (key, value, updated_at) VALUES ('active_model', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(model, now),
+        env.DB.prepare("INSERT INTO admin_audit (id, actor_email, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+          .bind(crypto.randomUUID(), admin.email, "model_change", model, "后台切换生成模型", now),
+      ]);
+      clearProviderStateCache();
+      return json({ ok: true, model });
+    }
+    if (action === "save_key") {
+      const providerId = String(body?.provider || "").trim();
+      if (!PROVIDERS.some(provider => provider.id === providerId)) return json({ error: "未知的模型提供商" }, 400);
+      const apiKey = String(body?.apiKey || "").trim();
+      if (apiKey) {
+        const encrypted = await encryptProviderKey(env, apiKey);
+        await env.DB.batch([
+          env.DB.prepare("INSERT INTO provider_keys (provider, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(provider) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(providerId, encrypted, now),
+          env.DB.prepare("INSERT INTO admin_audit (id, actor_email, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind(crypto.randomUUID(), admin.email, "key_save", providerId, "后台保存提供商密钥（加密存储）", now),
+        ]);
+        return json({ ok: true, configured: true });
+      }
+      await env.DB.prepare("DELETE FROM provider_keys WHERE provider = ?").bind(providerId).run();
+      await env.DB.prepare("INSERT INTO admin_audit (id, actor_email, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(crypto.randomUUID(), admin.email, "key_remove", providerId, "后台移除提供商密钥", now).run();
+      return json({ ok: true, configured: false });
+    }
     if (action === "sync_models") {
       try {
-        const models = await syncDeepSeekModels(env);
+        const providerId = String(body?.provider || (await activeProviderId(env))).trim();
+        const models = await syncProviderModels(env, providerId);
         return json({ ok: true, models });
       } catch (error) {
         return json({ error: error instanceof Error ? error.message : "同步失败" }, 502);
       }
     }
     if (action === "verify") {
-      const model = String(body?.model || "").trim() || (await activeModel(env));
-      const result = await verifyModel(env, model);
+      const providerId = String(body?.provider || "").trim() || (await activeProviderId(env));
+      const provider = getProvider(providerId);
+      const model = String(body?.model || "").trim() || provider.defaultModel;
+      const result = await callProviderChat(env, providerId, model, {
+        messages: [{ role: "user", content: "回复两个字：正常" }],
+        temperature: 0,
+        maxTokens: 16,
+        timeoutMs: 25_000,
+      });
       return result.ok
         ? json({ ok: true, resolvedModel: result.resolvedModel })
         : json({ ok: false, error: result.error }, 502);
-    }
-    if (action === "set_model") {
-      const model = String(body?.model || "").trim();
-      const catalog = await modelCatalog(env);
-      const known = STATIC_DEEPSEEK_MODELS.some(item => item.id === model) || catalog.some(item => item.id === model);
-      if (!/^[a-zA-Z0-9._:~/-]{2,180}$/.test(model) || !known) {
-        return json({ error: "该模型不在可用列表，请先从推荐列表选择或同步可用模型" }, 400);
-      }
-      const now = Date.now();
-      await env.DB.batch([
-        env.DB.prepare("INSERT INTO site_settings (key, value, updated_at) VALUES ('active_model', ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at").bind(model, now),
-        env.DB.prepare("INSERT INTO admin_audit (id, actor_email, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-          .bind(crypto.randomUUID(), admin.email, "model_change", model, "后台切换生成模型", now),
-      ]);
-      clearActiveModelCache();
-      return json({ ok: true, model });
     }
     return json({ error: "不支持的操作" }, 400);
   }
   return json({ error: "接口不存在" }, 404);
 }
-
 async function accountResponse(request, env) {
   const session = await readSession(request, env);
   const key = session?.email || await visitorKey(request);
@@ -770,6 +954,8 @@ async function accountResponse(request, env) {
   const member = session?.role === "admin" || activeMembership(user);
   const limit = member ? MEMBER_LIMIT : FREE_LIMIT;
   const usage = await readUsage(env.DB, key);
+  const provider = getProvider(await activeProviderId(env));
+  const providerKey = await providerApiKey(env, provider.id);
   return json({
     signedIn: Boolean(session),
     name: session?.email.split("@")[0] || "访客",
@@ -779,12 +965,12 @@ async function accountResponse(request, env) {
     isMember: member,
     plan: member ? user?.plan || "admin" : "free",
     planExpiresAt: user?.plan_expires_at || null,
-    aiConfigured: Boolean(env.DEEPSEEK_API_KEY),
-    aiOperational: Boolean(env.DEEPSEEK_API_KEY),
-    aiProvider: "deepseek",
-    aiProviderLabel: "DeepSeek",
+    aiConfigured: Boolean(providerKey),
+    aiOperational: Boolean(providerKey),
+    aiProvider: provider.id,
+    aiProviderLabel: provider.shortLabel,
     aiModel: await activeModel(env),
-    generationMode: "deepseek",
+    generationMode: provider.id,
     signInPath: session ? null : "/login",
   });
 }
@@ -910,10 +1096,12 @@ async function generateRoute(request, env) {
   if (request.method !== "POST" || !sameOrigin(request)) return json({ error: "请求来源或方法不正确" }, 403);
   const contentLength = Number(request.headers.get("content-length") || 0);
   if (contentLength > 64 * 1024) return json({ error: "请求内容过大，请缩短后重试" }, 413);
-  if (!env.DEEPSEEK_API_KEY) {
+  const provider = getProvider(await activeProviderId(env));
+  const providerKey = await providerApiKey(env, provider.id);
+  if (!providerKey) {
     return json({
-      error: "DeepSeek 服务尚未配置；站长完成安全密钥设置后即可恢复，本次不扣次数",
-      code: "DEEPSEEK_NOT_CONFIGURED",
+      error: `${provider.label} 服务尚未配置；站长在后台完成安全密钥设置后即可恢复，本次不扣次数`,
+      code: "PROVIDER_NOT_CONFIGURED",
     }, 503);
   }
   const body = await request.json().catch(() => null);
@@ -937,10 +1125,10 @@ async function generateRoute(request, env) {
   const inputLimit = member ? 12000 : 4000;
   if (material.length > inputLimit) return json({ error: `当前账户单次最多输入 ${inputLimit.toLocaleString()} 字` }, 400);
   const siteLimit = Math.max(1, Math.min(100000, Number(env.AI_SITE_DAILY_LIMIT || 500) || 500));
-  const siteUsage = await env.DB.prepare("SELECT COUNT(*) total FROM generations WHERE created_at >= ? AND model LIKE 'deepseek-%'")
+  const siteUsage = await env.DB.prepare("SELECT COUNT(*) total FROM generations WHERE created_at >= ?")
     .bind(Date.now() - WINDOW_MS).first();
   if (Number(siteUsage?.total || 0) >= siteLimit) {
-    return json({ error: "站点近 24 小时 DeepSeek 总额度已用完，请稍后再试", code: "SITE_QUOTA_EXCEEDED" }, 503);
+    return json({ error: "站点近 24 小时模型调用总额度已用完，请稍后再试", code: "SITE_QUOTA_EXCEEDED" }, 503);
   }
   const key = session?.email || await visitorKey(request);
   const reservation = await reserveUsage(env.DB, key, limit);
@@ -954,71 +1142,31 @@ async function generateRoute(request, env) {
   const controls = appliedControls(body);
   const model = await activeModel(env);
   const basePrompt = writingPrompt(body, count);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 38000);
-  let response;
-  try {
-    response = await fetch("https://api.deepseek.com/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${env.DEEPSEEK_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model,
-        thinking: { type: "disabled" },
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: "你是严谨的中文写作编辑。严格遵守事实边界，只输出最终成品。" },
-          { role: "user", content: basePrompt },
-        ],
-        temperature: body?.tool ? 0.15 : 0.65,
-        max_tokens: body?.tool ? 1800 : count > 3 ? 4200 : 2800,
-      }),
-      signal: controller.signal,
-    });
-  } catch (error) {
-    clearTimeout(timer);
+  const result = await callProviderChat(env, provider.id, model, {
+    messages: [
+      { role: "system", content: "你是严谨的中文写作编辑。严格遵守事实边界，只输出最终成品。" },
+      { role: "user", content: basePrompt },
+    ],
+    temperature: body?.tool ? 0.15 : 0.65,
+    maxTokens: body?.tool ? 1800 : count > 3 ? 4200 : 2800,
+    timeoutMs: 38_000,
+  });
+  if (!result.ok) {
     await releaseUsage(env.DB, key);
-    // 上游报错详情只进服务端日志，不回传浏览器：
-    // 里面可能带请求 ID、内部端点等不该公开的信息。
-    console.error("deepseek transport failure", error);
-    return json({ error: "DeepSeek 请求失败，本次不扣次数，请稍后重试", code: "DEEPSEEK_UNAVAILABLE" }, 503);
+    // 上游报错详情只进服务端日志，不回传浏览器。
+    return json({ error: `${result.error}，本次不扣次数，请稍后重试`, code: "PROVIDER_UNAVAILABLE" }, 503);
   }
-  clearTimeout(timer);
-  if (!response.ok) {
-    await releaseUsage(env.DB, key);
-    const detail = (await response.text()).slice(0, 240);
-    console.error("deepseek rejected request", response.status, detail);
-    return json({
-      error: `DeepSeek 未通过真实调用（HTTP ${response.status}），本次不扣次数，请稍后重试`,
-      code: "DEEPSEEK_UNAVAILABLE",
-    }, 503);
-  }
-  const payload = await response.json().catch(() => null);
-  const content = payload?.choices?.[0]?.message?.content;
+  const content = result.content;
   let results = validResults(content, count, material, body?.tool);
-  let resolvedModel = payload?.model || model;
+  let resolvedModel = result.resolvedModel || model;
   if (results.length < count) {
     const findings = candidateViolations(content, count, material, body?.tool);
-    const retryController = new AbortController();
-    const retryTimer = setTimeout(() => retryController.abort(), 38000);
-    try {
-      const retryResponse = await fetch("https://api.deepseek.com/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${env.DEEPSEEK_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model,
-          thinking: { type: "disabled" },
-          response_format: { type: "json_object" },
-          messages: [
-            { role: "system", content: "你是严谨的中文写作编辑。严格遵守事实边界，只输出最终成品。" },
-            {
-              role: "user",
-              content: `${basePrompt}
+    const retryResult = await callProviderChat(env, provider.id, model, {
+      messages: [
+        { role: "system", content: "你是严谨的中文写作编辑。严格遵守事实边界，只输出最终成品。" },
+        {
+          role: "user",
+          content: `${basePrompt}
 
 上一次输出未通过事实检查，请重新输出完整的 ${count} 个版本。
 检测到的具体问题：${findings.length ? findings.join("；") : "输出数量、格式或事实边界未通过"}。
@@ -1026,32 +1174,24 @@ async function generateRoute(request, env) {
 不得增加“无需、不用、不需要、不必、这个月、当天、更轻松、更方便、不慌不忙”等原文没有的条件、相对时间或主观结果。
 不得增加“欢迎来、感兴趣可以、有空来坐坐、立即报名”等原文没有的行动号召，也不要附加助手式客套。
 只输出最终 JSON 对象 {"versions":["完整成品"]}，不要解释。`,
-            },
-          ],
-          temperature: 0,
-          max_tokens: body?.tool ? 1800 : count > 3 ? 4200 : 2800,
-        }),
-        signal: retryController.signal,
-      });
-      if (retryResponse.ok) {
-        const retryPayload = await retryResponse.json().catch(() => null);
-        const retryContent = retryPayload?.choices?.[0]?.message?.content;
-        const retryResults = validResults(retryContent, count, material, body?.tool);
-        if (retryResults.length > results.length) {
-          results = retryResults;
-          resolvedModel = retryPayload?.model || resolvedModel;
-        }
+        },
+      ],
+      temperature: 0,
+      maxTokens: body?.tool ? 1800 : count > 3 ? 4200 : 2800,
+      timeoutMs: 38_000,
+    });
+    if (retryResult.ok) {
+      const retryResults = validResults(retryResult.content, count, material, body?.tool);
+      if (retryResults.length > results.length) {
+        results = retryResults;
+        resolvedModel = retryResult.resolvedModel || resolvedModel;
       }
-    } catch {
-      // The original valid subset remains usable; a fully rejected response is handled below.
-    } finally {
-      clearTimeout(retryTimer);
     }
   }
   if (results.length < count) {
     await releaseUsage(env.DB, key);
     return json({
-      error: `DeepSeek 本次只生成了 ${results.length} / ${count} 个通过事实与质量检查的版本，本次不扣次数；请补充真实素材后重试`,
+      error: `${provider.label} 本次只生成了 ${results.length} / ${count} 个通过事实与质量检查的版本，本次不扣次数；请补充真实素材后重试`,
       code: "QUALITY_REJECTED",
     }, 422);
   }
@@ -1067,8 +1207,8 @@ async function generateRoute(request, env) {
         controls.style,
         JSON.stringify(results),
         resolvedModel,
-        Number(payload?.usage?.prompt_tokens || 0),
-        Number(payload?.usage?.completion_tokens || 0),
+        Number(result.usage?.prompt_tokens || 0),
+        Number(result.usage?.completion_tokens || 0),
         Date.now(),
       ).run();
   } catch {
@@ -1116,6 +1256,8 @@ async function adminOverview(request, env) {
   const memberTotal = Number(activeMembers?.total || 0);
   const rollingGenerations = Number(generations?.total || 0);
   const siteLimit = Math.max(1, Math.min(100000, Number(env.AI_SITE_DAILY_LIMIT || 500) || 500));
+  const provider = getProvider(await activeProviderId(env));
+  const providerKey = await providerApiKey(env, provider.id);
   return json({
     release: VERSION,
     currentUser: admin,
@@ -1131,6 +1273,10 @@ async function adminOverview(request, env) {
     },
     systems: {
       deepSeekConfigured: Boolean(env.DEEPSEEK_API_KEY),
+      provider: provider.id,
+      providerLabel: provider.label,
+      providerShortLabel: provider.shortLabel,
+      providerKeyConfigured: Boolean(providerKey),
       model: await activeModel(env),
       database: true,
       rollingWindowHours: 24,
@@ -1266,11 +1412,14 @@ async function workerFetch(request, env) {
     if (url.pathname === "/api/admin/members") return adminMembers(request, env);
     if (url.pathname === "/api/admin/ai-settings") return adminAISettings(request, env);
     if (url.pathname === "/api/health" && request.method === "GET") {
+      const provider = getProvider(await activeProviderId(env));
       return json({
         ok: Boolean(env.DEEPSEEK_API_KEY),
         release: VERSION,
         database: true,
         deepSeekConfigured: Boolean(env.DEEPSEEK_API_KEY),
+        provider: provider.id,
+        providerLabel: provider.label,
         model: await activeModel(env),
         freeLimit: FREE_LIMIT,
         windowHours: 24,

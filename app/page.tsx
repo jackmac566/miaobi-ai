@@ -257,7 +257,7 @@ export default function Home() {
   const [generationError, setGenerationError] = useState("");
   const [history, setHistory] = useState<Draft[]>(initialHistory);
   const [toast, setToast] = useState("");
-  const [modal, setModal] = useState<"member" | "share" | "profile" | "legal" | "deleteAccount" | null>(() =>
+  const [modal, setModal] = useState<"member" | "share" | "profile" | "legal" | "deleteAccount" | "update" | null>(() =>
     typeof window !== "undefined" && window.__MIAOBI_STATIC_MODE__ === true && location.pathname === "/legal" ? "legal" : null
   );
   const [tool, setTool] = useState<string | null>(null);
@@ -271,6 +271,27 @@ export default function Home() {
   const [filter, setFilter] = useState("全部");
   const [account, setAccount] = useState<Account>({ signedIn: false, remaining: STATIC_DAILY_LIMIT, isAdmin: false });
   const [deletingAccount, setDeletingAccount] = useState(false);
+  const [updateInfo, setUpdateInfo] = useState<{ checking: boolean; release: string | null; error?: string }>({ checking: false, release: null });
+  const checkForUpdates = async () => {
+    setModal("update");
+    setUpdateInfo({ checking: true, release: null });
+    try {
+      const data = (await (await fetch("/api/health", { cache: "no-store" })).json().catch(() => null)) as { release?: string } | null;
+      setUpdateInfo({ checking: false, release: data?.release ?? null });
+    } catch {
+      setUpdateInfo({ checking: false, release: null, error: "检查失败，请检查网络后重试" });
+    }
+  };
+  const applyUpdate = () => {
+    try {
+      if ("serviceWorker" in navigator) {
+        navigator.serviceWorker.getRegistration().then(registration => registration?.update()).catch(() => undefined);
+      }
+    } catch {
+      // 忽略 SW 更新失败，直接刷新同样能拿到最新内容。
+    }
+    location.reload();
+  };
   const [accountSyncFailed, setAccountSyncFailed] = useState(false);
   const premiumAccess = account.isMember === true || account.isAdmin === true;
 
@@ -693,7 +714,7 @@ export default function Home() {
       }} />}
       {page === "updates" && <UpdatesPanel />}
       <UpdateChecker />
-      <footer className="site-footer"><span>妙笔AI · AI 生成内容请人工核对后使用 · {VERSION}</span><div><button onClick={() => setPage("updates")}>更新日志</button>{isStaticMode() ? <button onClick={() => setModal("legal")}>服务、隐私与退款说明</button> : <a href="/legal">服务、隐私与退款说明</a>}<a href="/privacy">隐私政策</a><a href="/terms">用户协议</a><a href="/admin">站长登录</a></div></footer>
+      <footer className="site-footer"><span>妙笔AI · AI 生成内容请人工核对后使用 · {VERSION}</span><div><button onClick={() => setPage("updates")}>更新日志</button><button onClick={checkForUpdates}>检查更新</button>{isStaticMode() ? <button onClick={() => setModal("legal")}>服务、隐私与退款说明</button> : <a href="/legal">服务、隐私与退款说明</a>}<a href="/privacy">隐私政策</a><a href="/terms">用户协议</a><a href="/admin">站长登录</a></div></footer>
     </main>
 
     <div className="mobile-dock">
@@ -703,7 +724,7 @@ export default function Home() {
         : <a className="mobile-account-entry" href={signInHref} aria-label="登录或注册"><span>♙</span><small>登录</small></a>}
     </div>
     {toast && <div className="toast" role="status" aria-live="polite">✓ {toast}</div>}
-    {modal && <Modal type={modal} close={() => setModal(null)} account={account} copy={copy} switchTo={setModal} requestDeletion={requestAccountDeletion} deletingAccount={deletingAccount} />}
+    {modal && <Modal type={modal} close={() => setModal(null)} account={account} copy={copy} switchTo={setModal} requestDeletion={requestAccountDeletion} deletingAccount={deletingAccount} updateInfo={updateInfo} applyUpdate={applyUpdate} />}
   </div>;
 }
 
@@ -809,7 +830,7 @@ function UpdatesPanel() {
   return <div className="page updates-panel"><div className="updates-panel-head"><span>CHANGELOG · 公开记录</span><h1>妙笔AI 更新日志</h1><p>每次正式上线都记录新增功能、体验改进和问题修复，所有访客都能查看。</p><a href="/updates">打开可分享的独立更新页 →</a></div><div className="updates-panel-list">{changelog.map(entry => <article className={entry.current ? "current" : ""} key={entry.version}><div><b>{entry.version}</b><time>{entry.date}</time>{entry.current && <span>当前版本</span>}</div><section><h2>{entry.title}</h2><p>{entry.summary}</p><ul>{entry.highlights.slice(0, 4).map(item => <li key={item}>{item}</li>)}</ul>{!!entry.fixes?.length && <details><summary>查看修复与调整</summary><ul>{entry.fixes.map(item => <li key={item}>{item}</li>)}</ul></details>}</section></article>)}</div></div>;
 }
 
-function Modal({ type, close, account, copy, switchTo, requestDeletion, deletingAccount }: any) {
+function Modal({ type, close, account, copy, switchTo, requestDeletion, deletingAccount, updateInfo, applyUpdate }: any) {
   const payment = manualPayment();
   const staticMode = isStaticMode();
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -936,6 +957,16 @@ function Modal({ type, close, account, copy, switchTo, requestDeletion, deleting
           <button onClick={() => switchTo("profile")}>返回我的账号</button>
           <button className="danger" disabled={deletingAccount} onClick={requestDeletion}>{deletingAccount ? "正在注销…" : "确认注销并删除数据"}</button>
         </div>
+      </div>}
+      {type === "update" && <div className="legal-content">
+        <span className="modal-icon">↻</span><h2>检查更新</h2>
+        {updateInfo?.checking
+          ? <p>正在检查线上版本…</p>
+          : updateInfo?.error
+            ? <p className="delete-confirm">{updateInfo.error}</p>
+            : updateInfo?.release && updateInfo.release !== VERSION
+              ? <><p>发现新版本 <b>{updateInfo.release}</b>（当前 {VERSION}），点击下方按钮立即更新。</p><div className="share-actions"><button onClick={applyUpdate}>立即更新</button><button onClick={close}>稍后再说</button></div></>
+              : <p>已是最新版本 <b>{VERSION}</b>，无需更新。</p>}
       </div>}
     </div>
   </div>;

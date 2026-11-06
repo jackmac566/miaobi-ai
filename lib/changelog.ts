@@ -10,11 +10,26 @@ export type ChangelogEntry = {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "V1.5.3",
+    date: "2026-11-06",
+    title: "多模型支持、后台密钥管理与手动检查更新",
+    summary: "模型设置支持八家提供商（GPT/Claude/千问/豆包/MiniMax/GLM/Gemini/DeepSeek），密钥加密存储在服务端，并新增手动检查更新按钮。",
+    current: true,
+    highlights: [
+      "模型提供商扩至八家：DeepSeek、OpenAI GPT、Anthropic Claude、通义千问、豆包、MiniMax、智谱 GLM、Google Gemini；没配密钥也能先切换查看。",
+      "后台可逐家保存 API 密钥：密钥用 SESSION_SECRET 派生的 AES-GCM 加密后存 D1，不出现在任何环境变量或前端。",
+      "模型设置面板新增：选择提供商、启用提供商、保存/移除密钥、切换模型、测试当前选择、同步可用模型。",
+      "系统状态与顶部状态卡随所选提供商联动（不再是固定的 DeepSeek 字样）。",
+      "站点页脚与运营后台新增“检查更新”按钮：手动检查线上版本，有新版本可一键刷新升级。",
+      "会员收款弹窗的付款方式按钮居中显示。",
+    ],
+  },
+  {
     version: "V1.5.2",
     date: "2026-11-06",
     title: "后台模型设置：多模型切换、同步与验证",
     summary: "运营后台新增模型设置，可在多个 DeepSeek 模型间切换、同步可用列表并进行真实接口验证。",
-    current: true,
+    current: false,
     highlights: [
       "运营后台新增“模型设置”：可在 V4 Flash / V4 Pro / Chat / Reasoner 等模型间切换，保存后立即生效。",
       "支持“同步可用模型”：读取你 DeepSeek 密钥下实际可用的模型列表，一键加入下拉选项。",

@@ -5,7 +5,7 @@ import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
-const RELEASE_VERSION = "V1.5.2";
+const RELEASE_VERSION = "V1.5.3";
 const WRANGLER_VERSION = "4.92.0";
 const DEFAULT_PROJECT = "miaobi-ai";
 const DATABASE_NAME = process.env.CLOUDFLARE_D1_DATABASE?.trim() || "miaobi-ai-db";
