@@ -10,11 +10,22 @@ export type ChangelogEntry = {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "V1.5.4",
+    date: "2026-11-09",
+    title: "移除微信小程序工程，聚焦网站产品",
+    summary: "因个人主体无法上架深度合成类目，正式放弃小程序路线并移除仓库内的小程序工程，全部验收保持通过。",
+    current: true,
+    highlights: [
+      "移除 wechat-mini-program 工程与专项测试；网页、隐私与协议文案同步去掉小程序表述（历史版本仍可从 Git 历史恢复）。",
+      "仓库结构精简为网站产品一条线：README、eslint 配置与更新日志同步清理，36 项验收全部通过。",
+    ],
+  },
+  {
     version: "V1.5.3",
     date: "2026-11-06",
     title: "多模型支持、后台密钥管理与手动检查更新",
     summary: "模型设置支持八家提供商（GPT/Claude/千问/豆包/MiniMax/GLM/Gemini/DeepSeek），密钥加密存储在服务端，并新增手动检查更新按钮。",
-    current: true,
+    current: false,
     highlights: [
       "模型提供商扩至八家：DeepSeek、OpenAI GPT、Anthropic Claude、通义千问、豆包、MiniMax、智谱 GLM、Google Gemini；没配密钥也能先切换查看。",
       "后台可逐家保存 API 密钥：密钥用 SESSION_SECRET 派生的 AES-GCM 加密后存 D1，不出现在任何环境变量或前端。",

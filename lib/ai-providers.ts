@@ -25,7 +25,7 @@ export const AI_PROVIDERS: readonly AIProvider[] = [
     label: "DeepSeek",
     shortLabel: "DeepSeek",
     category: "china",
-    description: "官方直连接口；正式站、国内版与小程序统一使用服务端调用。",
+    description: "官方直连接口；正式站与国内版统一使用服务端调用。",
     endpoint: "https://api.deepseek.com/chat/completions",
     modelsEndpoint: "https://api.deepseek.com/models",
     defaultModel: "deepseek-v4-flash",

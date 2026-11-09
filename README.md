@@ -4,8 +4,8 @@
 
 [在线演示](https://ai-copywriting-assistant.maxc565.chatgpt.site/) · [公开更新日志](https://ai-copywriting-assistant.maxc565.chatgpt.site/updates)
 
-> 当前开源版本：V1.5.3<br>
-> 生成服务：DeepSeek V4，仅由服务端调用；API Key 不进入浏览器或小程序源码。
+> 当前开源版本：V1.5.4<br>
+> 生成服务：DeepSeek V4，仅由服务端调用；API Key 不进入浏览器源码。
 
 ## 主要功能
 
@@ -18,7 +18,6 @@
 - 账号注销与数据删除（/api/account DELETE），独立《隐私政策》与《用户协议》页面。
 - 生成结果显式标注“AI 生成”，符合《人工智能生成合成内容标识办法》。
 - 全访客可见的更新日志、服务、隐私与退款说明。
-- 原生微信小程序工程，与网页共用同一个安全后端。
 
 ## 项目结构
 
@@ -27,7 +26,6 @@
 | `app/` | Next/Vinext 页面、API 和运营后台 |
 | `lib/` | DeepSeek 接入、会员、写作规则和质量检查 |
 | `cloudflare/` | Cloudflare Pages Functions + D1 版本 |
-| `wechat-mini-program/` | 可交给微信开发者工具或 WorkBuddy 的小程序工程 |
 | `tests/` | 产品规则、Worker、质量和页面回归测试 |
 | `scripts/` | 构建、验收和 Cloudflare 一键部署脚本 |
 
@@ -90,7 +88,7 @@ macOS 也可双击 `部署Cloudflare Pages.command`。首次部署时，脚本�
 
 ## 安全边界
 
-- 浏览器和小程序只请求自己的服务端，绝不直接持有 DeepSeek API Key。
+- 浏览器只请求自己的服务端，绝不直接持有 DeepSeek API Key。
 - AI、质量检查或网络失败会退还本次次数。
 - 聊天、Issue、日志和截图中出现过的 Key 应立即撤销。
 - 安全问题请按 [SECURITY.md](SECURITY.md) 私下报告，不要公开可利用细节。

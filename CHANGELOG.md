@@ -2,6 +2,11 @@
 
 完整逐项记录保存在 `lib/changelog.ts`，并在网站 `/updates` 页面向所有访客公开。
 
+## V1.5.4 — 2026-11-09
+
+- 移除 wechat-mini-program 小程序工程与专项测试（个人主体无法上架深度合成类目，放弃小程序路线；历史版本可从 Git 历史恢复）。
+- 网页、隐私与协议文案去掉小程序表述，README / eslint 配置同步清理。
+
 ## V1.5.3 — 2026-11-06
 
 - 模型提供商扩至八家：DeepSeek、GPT、Claude、通义千问、豆包、MiniMax、GLM、Gemini；没配密钥也能先切换查看。
@@ -22,7 +27,6 @@
 - 新增账号注销：`/api/account` 支持 DELETE，注销即删除生成记录、额度与站内账号数据；站长账号受保护。
 - 新增独立《隐私政策》（/privacy）与《用户协议》（/terms）页面。
 - 生成结果与工具输出显式标注"AI 生成"，整组导出带 AI 生成说明，符合《人工智能生成合成内容标识办法》。
-- 微信小程序创作页与工具页同步增加"AI 生成"标识。
 - Cloudflare Pages Worker 增加 `/api/account/delete` 注销接口。
 - 修复 CI：v5 构建工程纳入 lint 忽略，GitHub Actions 恢复全绿。
 

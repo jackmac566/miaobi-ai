@@ -1,4 +1,4 @@
-const CACHE_NAME = "miaobi-shell-v1.5.3";
+const CACHE_NAME = "miaobi-shell-v1.5.4";
 const APP_SHELL = ["/", "/updates", "/legal", "/manifest.webmanifest", "/favicon.ico", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", event => {

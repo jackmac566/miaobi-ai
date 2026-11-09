@@ -360,7 +360,7 @@ function AISettingsPanel({ settings, reload, onConnected }: { settings: AISettin
   return <section className="settings-panel">
     <div className="settings-heading"><div><span className={`connection-dot ${settings.operational ? "on" : ""}`} />{currentText}</div><small>只有真实请求成功且数据库回读一致，才会标记“正在运行”</small></div>
     <div className="provider-catalog-head">
-      <div><b>DeepSeek 官方直连</b><span>正式站、国内版和小程序统一走服务端，密钥不会写入访客前端</span></div>
+      <div><b>DeepSeek 官方直连</b><span>正式站与国内版统一走服务端，密钥不会写入访客前端</span></div>
     </div>
     <div className="provider-status-grid expanded" aria-label="DeepSeek 状态">{selected && <article className={`${selected.active ? "active" : ""} ${selected.verificationState === "failed" ? "failed" : ""}`}><b>DeepSeek</b><span>{selected.model}</span><small>{selected.description}</small><em>{statusLabel(selected)}</em></article>}</div>
     <div className="settings-layout">

@@ -109,7 +109,7 @@ test("Cloudflare domestic build contains login, D1 and server-side DeepSeek", as
   assert.match(page, /className="top-signin"/);
   assert.match(page, /className="mobile-account-entry"/);
   assert.match(page, /preference: toolPreference/);
-  assert.match(deploy, /V1\.5\.3/);
+  assert.match(deploy, /V1\.5\.4/);
   assert.match(deploy, /const DEFAULT_PROJECT = "miaobi-ai"/);
   assert.match(deploy, /8000002/);
   assert.match(deploy, /DEEPSEEK_API_KEY/);

@@ -12,9 +12,6 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // 微信小程序运行时使用 CommonJS 的 require/module.exports 约定，
-    // 由独立的结构与安全测试覆盖，不套用 Next.js 的 ESM 规则。
-    "wechat-mini-program/**",
     // v5 目录是把 JSX 模块拼装成单文件 HTML 的独立构建工程，
     // 模块体不是浏览器可直接解析的 .js 语法，由 build.py 与自身测试校验。
     "v5/**",
